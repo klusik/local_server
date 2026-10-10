@@ -10,9 +10,14 @@ import zipfile
 from dataclasses import replace
 from pathlib import Path
 from unittest.mock import patch
+from urllib.request import Request
 
 from local_server.components.catalog import PackageSpec
-from local_server.components.installer import ComponentInstaller, IntegrityError
+from local_server.components.installer import (
+    ComponentInstaller,
+    HTTPSOnlyRedirectHandler,
+    IntegrityError,
+)
 from local_server.core.paths import AppPaths
 from local_server.core.platform import PlatformTarget
 
@@ -53,8 +58,8 @@ class InstallerTests(unittest.TestCase):
 
     def test_install_verified_archive(self) -> None:
         """A digest-checked archive lands in a versioned private folder."""
-        with patch(
-            "local_server.components.installer.urllib.request.urlopen",
+        with patch.object(
+            self.installer, "_open",
             return_value=FakeHttpsResponse(self.archive_content),
         ):
             target = self.installer.install(self.package)
@@ -66,12 +71,21 @@ class InstallerTests(unittest.TestCase):
     def test_bad_checksum_keeps_target_absent(self) -> None:
         """Checksum mismatches must leave no installed component behind."""
         bad = replace(self.package, sha256="0" * 64)
-        with patch(
-            "local_server.components.installer.urllib.request.urlopen",
+        with patch.object(
+            self.installer, "_open",
             return_value=FakeHttpsResponse(self.archive_content),
         ), self.assertRaises(IntegrityError):
             self.installer.install(bad)
         self.assertFalse(self.installer.installed_path(bad).exists())
+
+    def test_https_downgrade_redirect_is_refused(self) -> None:
+        """Redirect handlers must block HTTP before sending downgraded requests."""
+        handler = HTTPSOnlyRedirectHandler()
+        request = Request("https://example.org/nginx.zip")
+        with self.assertRaises(ValueError):
+            handler.redirect_request(
+                request, None, 302, "Found", {}, "http://example.org/nginx.zip"
+            )
 
     def test_wrong_platform_rejected(self) -> None:
         """Packages for other operating systems are never installed."""

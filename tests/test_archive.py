@@ -48,6 +48,18 @@ class ArchiveTests(unittest.TestCase):
         with self.assertRaises(ArchiveSafetyError):
             safe_extract(archive, self.staging, "zip")
 
+    def test_reject_windows_special_names(self) -> None:
+        """Reject Windows device aliases and alternate data stream paths."""
+        for index, member in enumerate(
+            ("NUL.txt", "dir/file.txt:evil", "dir./file.txt", "COM1/log")
+        ):
+            with self.subTest(member=member):
+                archive = self.root / f"windows-{index}.zip"
+                with zipfile.ZipFile(archive, "w") as writer:
+                    writer.writestr(member, b"bad")
+                with self.assertRaises(ArchiveSafetyError):
+                    safe_extract(archive, self.staging, "zip")
+
     def test_reject_zip_symlink(self) -> None:
         """Symlinks in ZIP entries are never written to disk."""
         archive = self.root / "link.zip"

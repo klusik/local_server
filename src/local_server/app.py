@@ -32,15 +32,16 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     # Tk is imported only on GUI launch, so headless tests work without a display.
     try:
+        import tkinter as tk
         from local_server.ui.main_window import MainWindow
+    except ImportError as exc:
+        print(f"Tkinter is missing from this Python distribution: {exc}", file=sys.stderr)
+        return 1
 
+    try:
         window = MainWindow(service=service, paths=paths)
-    except Exception as exc:
-        import tkinter
-
-        if isinstance(exc, tkinter.TclError):
-            print(f"Unable to launch Tkinter: {exc}", file=sys.stderr)
-            return 1
-        raise
+    except tk.TclError as exc:
+        print(f"Unable to launch Tkinter: {exc}", file=sys.stderr)
+        return 1
     window.mainloop()
     return 0

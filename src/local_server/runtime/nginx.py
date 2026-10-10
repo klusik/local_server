@@ -44,20 +44,20 @@ def render_nginx_config(
 
     if php_upstream_port is None:
         php_location = (
-            "        location ~ \\.p(?:hp|html)(?:/|$) {\n"
+            "        location ~* \\.(?:php[0-9]?|phtml|phar|phps)(?:/|$) {\n"
             "            return 404;\n"
             "        }\n"
         )
     else:
         php_location = (
-            "        location ~ \\.php$ {\n"
+            "        location ~* \\.php$ {\n"
             "            try_files $uri =404;\n"
             "            include fastcgi_params;\n"
             "            fastcgi_param SCRIPT_FILENAME $document_root$fastcgi_script_name;\n"
             "            fastcgi_param HTTP_PROXY \"\";\n"
             f"            fastcgi_pass 127.0.0.1:{php_upstream_port};\n"
             "        }\n"
-            "        location ~ \\.phtml$ { return 404; }\n"
+            "        location ~* \\.(?:php[0-9]|phtml|phar|phps)(?:/|$) { return 404; }\n"
         )
 
     return (

@@ -147,7 +147,9 @@ class MainWindow(tk.Tk):
     def refresh(self) -> None:
         """Reload the UI from validated on-disk project settings."""
         previous = self._selected_id()
-        self.project_tree.delete(*self.project_tree.get_children())
+        existing_rows = self.project_tree.get_children()
+        if existing_rows:
+            self.project_tree.delete(*existing_rows)
         try:
             projects = self.service.list_projects()
         except (ValueError, OSError, RuntimeError) as exc:

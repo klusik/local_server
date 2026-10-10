@@ -22,9 +22,19 @@ def _relative_path(name: str, strip_components: int) -> Path | None:
     if not normalized or normalized.startswith("/") or "\x00" in normalized:
         raise ArchiveSafetyError(f"Unsafe archive path: {name!r}")
     chunks = normalized.split("/")
-    if ":" in chunks[0] or any(chunk == ".." for chunk in chunks):
+    if any(chunk == ".." for chunk in chunks):
         raise ArchiveSafetyError(f"Unsafe archive path: {name!r}")
     pieces = [chunk for chunk in chunks if chunk not in {"", "."}]
+    windows_devices = {"CON", "PRN", "AUX", "NUL"}
+    windows_devices.update(f"COM{i}" for i in range(1, 10))
+    windows_devices.update(f"LPT{i}" for i in range(1, 10))
+    if any(
+        ":" in part
+        or part.endswith((".", " "))
+        or part.split(".", 1)[0].upper() in windows_devices
+        for part in pieces
+    ):
+        raise ArchiveSafetyError(f"Unsafe Windows-compatible archive path: {name!r}")
     if len(pieces) <= strip_components:
         return None
     relative = PurePosixPath(*pieces[strip_components:])
@@ -67,7 +77,6 @@ def safe_extract(
     destination = Path(destination)
     if not destination.is_dir() or any(destination.iterdir()):
         raise ValueError("Extraction destination must be an empty directory")
-    seen: set[Path] = set()
     entries: list[tuple[object, Path | None, int, bool]] = []
 
     if archive_type == "zip":
@@ -85,7 +94,7 @@ def safe_extract(
                 path = _relative_path(member.filename, strip_components)
                 is_dir = member.is_dir()
                 entries.append((member, path, member.file_size, is_dir))
-            _validate_entries(entries, seen)
+            _validate_entries(entries)
             _extract_zip(archive, destination, entries)
     else:
         with tarfile.open(archive_path, mode="r:gz") as archive:
@@ -97,14 +106,15 @@ def safe_extract(
                     raise ArchiveSafetyError("Archive contains links or special files")
                 path = _relative_path(member.name, strip_components)
                 entries.append((member, path, member.size, member.isdir()))
-            _validate_entries(entries, seen)
+            _validate_entries(entries)
             _extract_tar(archive, destination, entries)
 
 
 def _validate_entries(
-    entries: list[tuple[object, Path | None, int, bool]], seen: set[Path]
+    entries: list[tuple[object, Path | None, int, bool]]
 ) -> None:
-    """Preflight size and duplicate paths before extraction."""
+    """Preflight archive sizes, duplicate names and file/directory collisions."""
+    seen: dict[Path, bool] = {}
     total = 0
     for _member, relative, size, is_dir in entries:
         if size < 0:
@@ -115,20 +125,15 @@ def _validate_entries(
             continue
         if relative in seen:
             raise ArchiveSafetyError(f"Duplicate archive path: {relative}")
-        seen.add(relative)
+        seen[relative] = is_dir
         if not is_dir:
             total += size
         if total > MAX_UNPACKED_BYTES:
             raise ArchiveSafetyError("Archive extraction size limit exceeded")
-    for _member, relative, _size, is_dir in entries:
-        if relative is not None and not is_dir:
-            for parent in relative.parents:
-                if parent in seen and parent != Path("."):
-                    if any(
-                        part == parent and not is_directory
-                        for _, part, _, is_directory in entries
-                    ):
-                        raise ArchiveSafetyError("Archive file shadows a directory")
+    for relative in seen:
+        for parent in relative.parents:
+            if parent != Path(".") and seen.get(parent) is False:
+                raise ArchiveSafetyError("Archive file shadows a directory")
 
 
 def _extract_zip(

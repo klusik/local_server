@@ -23,12 +23,29 @@ class IntegrityError(RuntimeError):
     """A downloaded binary package does not match its pinned SHA-256."""
 
 
+class HTTPSOnlyRedirectHandler(urllib.request.HTTPRedirectHandler):
+    """Reject TLS downgrade and credential-bearing redirects before following."""
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        """Refuse redirects outside HTTPS before sending the next request."""
+        target = urlsplit(newurl)
+        if (
+            target.scheme.lower() != "https"
+            or not target.hostname
+            or target.username is not None
+            or target.password is not None
+        ):
+            raise ValueError("Package redirect must remain an HTTPS URL")
+        return super().redirect_request(req, fp, code, msg, headers, newurl)
+
+
 class ComponentInstaller:
     """Install archive-based components without touching system directories."""
 
     def __init__(self, paths: AppPaths, target: PlatformTarget | None = None):
         self.paths = paths
         self.target = target or PlatformTarget.detect()
+        self._open = urllib.request.build_opener(HTTPSOnlyRedirectHandler()).open
 
     def installed_path(self, package: PackageSpec) -> Path:
         """Return the platform-specific side-by-side binary installation path."""
@@ -85,15 +102,14 @@ class ComponentInstaller:
             if staging:
                 shutil.rmtree(staging, ignore_errors=True)
 
-    @staticmethod
-    def _download_and_verify(package: PackageSpec, stream) -> None:
+    def _download_and_verify(self, package: PackageSpec, stream) -> None:
         """Stream a bounded HTTPS response and require an exact SHA-256 match."""
         digest = hashlib.sha256()
         size = 0
         request = urllib.request.Request(
             package.url, headers={"User-Agent": "LocalServer/0.1"}
         )
-        with urllib.request.urlopen(request, timeout=30) as response:
+        with self._open(request, timeout=30) as response:
             final_url = response.geturl()
             if urlsplit(final_url).scheme != "https":
                 raise ValueError("Download redirected away from HTTPS")
