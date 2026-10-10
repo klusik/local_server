@@ -1,0 +1,30 @@
+[build-system]
+requires = ["setuptools>=70"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "local-server-manager"
+version = "0.1.0.dev0"
+description = "Isolated local web development environments for Windows and macOS"
+readme = "README.md"
+requires-python = ">=3.11"
+license = {text = "Proprietary - license to be determined"}
+authors = [{name = "Rudolf Klusal"}]
+dependencies = []
+classifiers = [
+  "Development Status :: 2 - Pre-Alpha",
+  "Environment :: Win32 (MS Windows)",
+  "Environment :: MacOS X",
+  "Framework :: Tkinter",
+  "Programming Language :: Python :: 3",
+  "Topic :: Internet :: WWW/HTTP :: HTTP Servers",
+]
+
+[project.scripts]
+local-server = "local_server.app:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+local_server = ["components/package_catalog.json"]
