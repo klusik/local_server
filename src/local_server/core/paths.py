@@ -1,17 +1,19 @@
 """All application-managed state stays inside a per-user directory."""
 
-from __future__ import annotations
-
 import os
 import sys
-import uuid
 import tempfile
+import uuid
 from dataclasses import dataclass
 from pathlib import Path
 
 
 def application_root() -> Path:
-    """Locate the portable folder independently of the working directory."""
+    """Locate the portable folder independently of the working directory.
+
+    Returns:
+        Path: Portable application folder independent of the caller working directory.
+    """
     if getattr(sys, "frozen", False):
         executable = Path(sys.executable).resolve()
         for parent in executable.parents:
@@ -24,11 +26,20 @@ def application_root() -> Path:
     # An installed launcher must be absolute; never resolve a relative argv[0]
     # against the caller's working directory.
     launcher = Path(sys.argv[0])
-    return launcher.parent.resolve() if launcher.is_absolute() else Path(sys.executable).resolve().parent
+    return (
+        launcher.parent.resolve()
+        if launcher.is_absolute()
+        else Path(sys.executable).resolve().parent
+    )
 
 
 def reject_links(root: Path, target: Path) -> None:
-    """Refuse symlink/junction redirection anywhere below a managed root."""
+    """Refuse symlink/junction redirection anywhere below a managed root.
+
+    Args:
+        root (Path): Private root directory containing the managed resource.
+        target (Path): Requested target platform or destination path.
+    """
     root, target = Path(root).absolute(), Path(target).absolute()
     target.relative_to(root)
     for path in (root, *reversed(target.relative_to(root).parents), target):
@@ -37,11 +48,17 @@ def reject_links(root: Path, target: Path) -> None:
             candidate.exists()
             and getattr(candidate.lstat(), "st_file_attributes", 0) & 0x400
         ):
-            raise ValueError(f"Managed storage cannot contain links or junctions: {candidate}")
+            raise ValueError(
+                f"Managed storage cannot contain links or junctions: {candidate}"
+            )
 
 
 def default_app_data_dir() -> Path:
-    """Resolve a writable, non-system application home for this OS."""
+    """Resolve a writable, non-system application home for this OS.
+
+    Returns:
+        Path: Explicit state override or the portable application state directory.
+    """
     override = os.environ.get("LOCAL_SERVER_HOME")
     if override:
         path = Path(override).expanduser()
@@ -61,41 +78,76 @@ class AppPaths:
 
     @property
     def projects_file(self) -> Path:
-        """Return the project profile JSON location."""
+        """Return the project profile JSON location.
+
+        Returns:
+            Path: Path to the profile JSON file.
+        """
         return self.root / "projects.json"
 
     @property
     def downloads(self) -> Path:
-        """Return the temporary package download directory."""
+        """Return the temporary package download directory.
+
+        Returns:
+            Path: Private temporary archive and staging directory.
+        """
         return self.components / ".staging"
 
     @property
     def components(self) -> Path:
-        """Return the private versioned binary installation directory."""
+        """Return the private versioned binary installation directory.
+
+        Returns:
+            Path: Private versioned binary package directory.
+        """
         return (self.portable_root or self.root) / "packages"
 
     @property
     def runtime_cache(self) -> Path:
-        """Keep reviewed app-local runtime archives separate from server versions."""
+        """Keep reviewed app-local runtime archives separate from server versions.
+
+        Returns:
+            Path: Private directory containing reviewed app-local runtime bundles.
+        """
         return self.components / ".runtime-cache"
 
     @property
     def databases(self) -> Path:
-        """Reserve separate storage for future database data, never binaries."""
+        """Reserve separate storage for future database data, never binaries.
+
+        Returns:
+            Path: Private project database storage directory.
+        """
         return self.root / "data"
 
     @property
     def logs(self) -> Path:
-        """Return the private managed process log directory."""
+        """Return the private managed process log directory.
+
+        Returns:
+            Path: Private directory for managed child process logs.
+        """
         return self.root / "logs"
 
     @property
     def generated(self) -> Path:
-        """Return generated web-server configuration directories."""
+        """Return generated web-server configuration directories.
+
+        Returns:
+            Path: Private directory for generated project configurations.
+        """
         return self.root / "generated"
 
     def project_config_dir(self, project_id: str) -> Path:
-        """Return a validated project's configuration directory."""
+        """Return a validated project's configuration directory.
+
+        Args:
+            project_id (str): Stable UUID of the saved project.
+
+        Returns:
+            Path: Private configuration directory for the validated project UUID.
+        """
         try:
             name = str(uuid.UUID(project_id))
         except (ValueError, TypeError, AttributeError) as exc:
@@ -113,7 +165,9 @@ class AppPaths:
             self.databases,
             self.runtime_cache,
         ):
-            base = self.components if path.is_relative_to(self.components) else self.root
+            base = (
+                self.components if path.is_relative_to(self.components) else self.root
+            )
             reject_links(base, path)
             try:
                 path.mkdir(parents=True, exist_ok=True)
@@ -122,4 +176,8 @@ class AppPaths:
                 with tempfile.TemporaryFile(dir=path):
                     pass
             except OSError as exc:
-                raise OSError(f"Cannot write to portable storage: {path}. Move the application to a writable folder or select --data-dir for state.") from exc
+                raise OSError(
+                    f"Cannot write to portable storage: {path}. "
+                    "Move the application to a writable folder "
+                    "or select --data-dir for state."
+                ) from exc

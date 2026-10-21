@@ -1,7 +1,5 @@
 """Archive traversal, symlink and regular-file extraction tests."""
 
-from __future__ import annotations
-
 import io
 import stat
 import tarfile
@@ -17,6 +15,7 @@ class ArchiveTests(unittest.TestCase):
     """Untrusted package extraction must never escape its staging directory."""
 
     def setUp(self) -> None:
+        """Create isolated test resources."""
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
         self.root = Path(self.temp.name)
@@ -120,12 +119,22 @@ class ArchiveTests(unittest.TestCase):
         with zipfile.ZipFile(archive, "w") as writer:
             writer.writestr("large", b"x" * (3 * 1024 * 1024))
         written = 0
+
         def progress(done: int, total: int) -> None:
+            """Forward acquisition progress as an immutable worker event.
+
+            Args:
+                done (int): Number of bytes already processed.
+                total (int): Total number of bytes expected for the operation.
+            """
             nonlocal written
             written = done
+
         def check() -> None:
+            """Abort acquisition promptly after cancellation is requested."""
             if written:
                 raise InterruptedError("cancelled")
+
         with self.assertRaises(InterruptedError):
             safe_extract(archive, self.staging, "zip", check=check, progress=progress)
 

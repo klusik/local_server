@@ -1,14 +1,19 @@
 """Localhost-only Nginx configuration rendering for one project."""
 
-from __future__ import annotations
-
 from pathlib import Path
 
 from local_server.core.models import ProjectProfile
 
 
 def _quoted_path(value: str | Path) -> str:
-    """Quote a filesystem path conservatively for an Nginx config string."""
+    """Quote a filesystem path conservatively for an Nginx config string.
+
+    Args:
+        value (str | Path): Input value to validate or encode.
+
+    Returns:
+        str: Escaped absolute path suitable for an Nginx configuration string.
+    """
     normalized = Path(value).resolve().as_posix()
     if any(character in normalized for character in {'"', "$", "\r", "\n"}):
         raise ValueError("Path contains unsupported Nginx configuration characters")
@@ -26,6 +31,18 @@ def render_nginx_config(
 
     If no FastCGI upstream is available, PHP files are blocked rather than
     accidentally served as source. Starting the processes is a separate step.
+
+    Args:
+        project (ProjectProfile): Validated profile whose resources remain isolated by
+            project UUID.
+        config_dir (Path): Private directory for generated configuration files.
+        php_upstream_port (int | None): Private loopback FastCGI port, or None to deny
+            PHP.
+        diagnostic (tuple[str, Path] | None): Private diagnostic PHP script used for the
+            health probe.
+
+    Returns:
+        str: Isolated foreground Nginx configuration bound only to IPv4 loopback.
     """
     project.validate()
     if project.server != "nginx":
@@ -55,7 +72,7 @@ def render_nginx_config(
             "            try_files $uri =404;\n"
             f"            include {_quoted_path(config_dir / 'fastcgi_params')};\n"
             "            fastcgi_param SCRIPT_FILENAME $document_root$fastcgi_script_name;\n"
-            "            fastcgi_param HTTP_PROXY \"\";\n"
+            '            fastcgi_param HTTP_PROXY "";\n'
             f"            fastcgi_pass 127.0.0.1:{php_upstream_port};\n"
             "        }\n"
             "        location ~* \\.(?:php[0-9]?|phtml|phar|phps)(?:[^a-z0-9]|$) { return 404; }\n"
@@ -64,6 +81,7 @@ def render_nginx_config(
     diagnostic_location = ""
     if diagnostic is not None:
         import re
+
         token, script = diagnostic
         if not re.fullmatch(r"[a-f0-9]{32}", token) or php_upstream_port is None:
             raise ValueError("Invalid runtime diagnostic")
@@ -71,7 +89,7 @@ def render_nginx_config(
             f"        location = /__local_server_{token}.php {{\n"
             f"            include {_quoted_path(config_dir / 'fastcgi_params')};\n"
             f"            fastcgi_param SCRIPT_FILENAME {_quoted_path(script)};\n"
-            "            fastcgi_param HTTP_PROXY \"\";\n"
+            '            fastcgi_param HTTP_PROXY "";\n'
             f"            fastcgi_pass 127.0.0.1:{php_upstream_port};\n"
             "        }\n"
         )

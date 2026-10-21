@@ -2,7 +2,7 @@
 
 ## Requirements
 
-- Python 3.11 or newer
+- Python 3.14 or newer
 - Tkinter support in the chosen Python distribution
 - Windows 10/11 or macOS for managed component runtimes
 - Git for development, but no git command is required by the application
@@ -33,10 +33,10 @@ macOS:
 source .venv/bin/activate
 ```
 
-Install and run:
+Install development tooling and run:
 
 ```console
-python -m pip install -e .
+python -m pip install -e '.[dev]'
 python -m local_server
 ```
 
@@ -54,12 +54,116 @@ imported lazily so headless unit tests never require a graphical display.
 ## Tests
 
 ```console
+python -m ruff check src tests tools
+python -m ruff format --check src tests tools
+python -m mypy
+python tools/check_source.py
+python tools/check_workflows.py
 python -m compileall -q src tests
 python -m unittest discover -s tests -v
 ```
 
-GitHub Actions tests Python 3.11 and 3.13 on Ubuntu, Windows and macOS.
+GitHub Actions has two profiles:
+
+- **BASIC** runs on every push: Ruff lint/format, strict mypy, source policy,
+  MVC boundaries, and regression tests for those checks and Git integration.
+  It uses one Ubuntu/Python 3.14 job with a three-minute ceiling, including setup.
+  It does not run the application test suite or provision Windows/macOS runners.
+  On develop PRs it additionally requires one squash commit before qualification;
+  intermediate multi-commit pushes may still run ordinary BASIC checks.
+- **FULL** runs after BASIC on pull requests, manual Python CI runs and manual
+  Develop integrate runs. It runs all headless tests on Python 3.14
+  across Ubuntu, Windows and macOS (three jobs).
+
+Development tool versions are pinned in `.[dev]`; they are not runtime
+dependencies. BASIC is intended to finish quickly, but runner provisioning and
+package downloads can vary. Its timeout is a ceiling, not a promised duration.
 Ubuntu is a headless *test runner*, not a promised web-runtime target.
+
+### Source policy and MVC
+
+All owned Python under `src/`, `tests/` and `tools/` must parse as Python 3.14,
+have annotated function parameters and returns, and document each function's
+purpose. Google-style `Args` entries include the parameter name, type and useful
+explanation; `Returns`/`Yields` describe non-None results and their types.
+Preserve existing documentation when extending it. Ruff enforces the Google
+convention; `check_source.py` additionally requires typed argument descriptions,
+private-function documentation and a hard 100-column maximum, including strings.
+The formatter targets 88 columns; short lines do not need padding to 80 columns.
+Use native Python 3.14 annotations. `from __future__ import annotations` is
+forbidden; quote forward references when the referenced type is not yet defined
+or is available only during type checking.
+
+Strict mypy checks application and tool code, including variable assignments and
+return values. Straightforward local variables may use inferred types; annotate
+public fields, optional state and ambiguous containers explicitly. Tests also
+require typed signatures, while deliberately invalid fixtures are exercised at
+runtime. `Any` remains permitted at dynamic JSON, ctypes and Tk keyword-option
+boundaries; it must not replace a known domain type. Windows ctypes APIs are
+checked with Windows type stubs (`platform = "win32"`) on every host; the full
+runtime test matrix separately covers platform-dependent behavior.
+
+The current architecture maps MVC responsibilities onto existing modules:
+
+- `core` contains validated models and persistence. It cannot import services,
+  component management, runtime controllers or UI.
+- `services`, `components` and `runtime` implement use cases, IO and process
+  controllers. They cannot import Tkinter, UI or the application composition root.
+- `ui` renders state and submits commands to workers. Direct network/process
+  implementation imports and blocking file/service calls in callbacks fail BASIC.
+  Recognized `_submit_io` / `_io.submit` closures may perform background IO.
+- `app.py` composes the application and may lazily import Tkinter at startup.
+
+These are static dependency and direct-call checks, including relative imports.
+They do not prove thread safety or detect every dynamic import/call. Review must
+still assess responsibilities, callback handoff and whether business rules have
+leaked into a view. UI workers deliver results through queues; only the Tk thread
+updates widgets.
+
+### Manual develop integration
+
+Open **Actions → Develop integrate → Run workflow**, select the source branch
+in **Use workflow from**, then run. Equivalently, with GitHub CLI installed:
+
+```console
+gh workflow run develop-integration.yml --ref feature/my-change
+```
+
+The selected branch must contain **exactly one squashed, non-merge commit whose
+sole parent is current `develop`**, including the workflow/helpers. Merely being
+fast-forwardable is insufficient. Two or more feature commits, a merge tip,
+an unchanged develop tip or an outdated base fail before the full matrix starts.
+Both the initiating and re-running actor must have `maintain`
+or `admin` repository permission. Any source branch name is supported except the
+target `develop` itself; tags are rejected. The selected commit owns the workflow,
+local reusable workflows and checks. Changes to CI on that branch take effect in
+that run; they need not match or be copied to `main` first.
+
+The run pins the source SHA and observed develop SHA, runs BASIC, then FULL on
+that exact candidate. Only after both succeed does a fresh publication job get
+`contents: write`. It rechecks source and target heads and performs a normal
+fast-forward push of the tested SHA. It creates no merge/squash commit, does not
+rebase and never forces a ref. A moved/deleted source, changed develop, divergent
+history, unsquashed work, failed/skipped/cancelled job or rejected push leaves develop
+unchanged by this run. Squash completed work above current develop and start a new
+run after a rejected integration. Concurrent integrations share one queue;
+source/target checks still protect against unrelated writers. A racing divergent
+push is rejected by Git itself. A racing ancestor update can only be advanced to
+the same fully tested candidate via Git's ordinary fast-forward rules.
+
+GitHub requires **one initial registration of a workflow with
+`workflow_dispatch` on the repository's default branch** before its manual button
+or CLI dispatch is available. Install the workflow through the repository's
+normal reviewed default-branch process once; this change does not bypass that
+provider requirement or push directly to main. After registration, future CI
+edits execute from the selected feature branch without another main update.
+See [GitHub's manual workflow documentation](https://docs.github.com/en/actions/how-tos/manage-workflow-runs/manually-run-a-workflow).
+
+Repository rules must allow the workflow's normal fast-forward to develop; this
+implementation does not disable protection or add bypass tokens. A push using
+`GITHUB_TOKEN` normally does not start another push workflow, so publication
+depends on its own complete qualification rather than a subsequent push run.
+The feature branch remains available after integration.
 
 The current tests cover profile validation, atomic persistence, CRUD,
 catalog/platform validation, ZIP and tar.gz safety, verified installer behavior,
@@ -104,7 +208,8 @@ It starts explicitly selected Nginx/PHP and optional MySQL packages on Windows x
 including secure per-project initialization and database/user creation. PHP switching
 still requires stop/start. See
 [runtime verification](RUNTIME.md) for completed and pending checks. Initial tests
-ran locally; GitHub Actions runs the cross-platform matrix on pushes and PRs.
+ran locally; GitHub Actions runs BASIC on pushes and the cross-platform matrix
+on PRs and manual full validation/integration.
 
 ## Design constraints
 

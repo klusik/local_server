@@ -1,7 +1,5 @@
 """Managed-process admission and ownership tests."""
 
-from __future__ import annotations
-
 import tempfile
 import unittest
 from pathlib import Path
@@ -15,6 +13,7 @@ class ProcessSupervisorTests(unittest.TestCase):
     """Only managed binaries may be spawned, without invoking any shell."""
 
     def setUp(self) -> None:
+        """Create isolated test resources."""
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
         self.root = Path(self.temp.name)

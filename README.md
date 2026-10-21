@@ -12,7 +12,7 @@ Cross-platform desktop manager for isolated local web development environments.
 
 ## Goals
 
-- Python 3.11+ and Tkinter for Windows and macOS.
+- Python 3.14+ and Tkinter for Windows and macOS.
 - Per-project document roots, web server selection, PHP versions and localhost ports.
 - Portable, side-by-side archives in `packages/` beside the application.
 - Verified downloads from approved upstream sources, without machine-wide installers.

@@ -103,6 +103,25 @@ responses; missing FastCGI yields an upstream error. Diagnostic scripts are crea
 only under private generated state, never in a user's project. State/packages may
 not overlap a document root. These controls are not an application sandbox.
 
+## CI integration boundary
+
+Push CI is read-only BASIC validation. Manual Develop integrate executes the
+workflow and checks owned by the explicitly selected branch; maintain/admin
+permission is required for both initiating and re-running actors. Those actors
+are trusted to review CI edits before dispatch. This is not a sandbox for an
+untrusted feature workflow: a maintainer who can edit a workflow can also edit
+its checks. Fork PR validation has no publication token or integration trigger.
+
+Source selection and testing use read-only repository tokens; checkout does not
+persist credentials. Selection requires exactly one non-merge source commit
+directly above observed develop; multiple commits never enter full qualification.
+Only the final publication job receives contents write,
+after BASIC and every full-matrix job succeed for the pinned candidate. It
+rechecks both remote heads and uses a normal fast-forward push, never a force
+update, branch-protection bypass or unchecked generated merge. Branch rules are
+enforced by GitHub and may reject publication. No runtime downloads, real server
+smoke tests, credential-vault opt-in or system installation is added to CI.
+
 ## Reporting security issues
 
 Avoid publishing exploits, secrets or sensitive local path information in

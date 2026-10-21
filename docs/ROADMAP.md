@@ -5,7 +5,7 @@ GitHub issues, Project board and release milestones will be created later.
 
 ## Phase 0: Repository scaffold (current)
 
-- [x] Python 3.11+ `src/` package layout and Tkinter entry point.
+- [x] Python 3.14+ `src/` package layout and Tkinter entry point.
 - [x] Portable state directory, explicit overrides and atomic JSON storage.
 - [x] Create/edit/delete project profiles without touching project sources.
 - [x] Project server, PHP version, HTTP port and optional MySQL flags.

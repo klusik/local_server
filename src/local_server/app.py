@@ -1,7 +1,5 @@
 """Application composition root and command-line entry point."""
 
-from __future__ import annotations
-
 import argparse
 import sys
 from pathlib import Path
@@ -14,7 +12,15 @@ from local_server.services.projects import ProjectService
 
 
 def main(argv: Sequence[str] | None = None) -> int:
-    """Launch the Tk desktop app using per-user application data."""
+    """Launch the Tk desktop app using per-user application data.
+
+    Args:
+        argv (Sequence[str] | None): Executable path followed by literal process
+            arguments.
+
+    Returns:
+        int: Process exit status: zero on success, one when startup fails.
+    """
     parser = argparse.ArgumentParser(description="Local Server desktop manager")
     parser.add_argument(
         "--data-dir",
@@ -33,18 +39,24 @@ def main(argv: Sequence[str] | None = None) -> int:
         print(f"Cannot open portable storage: {exc}", file=sys.stderr)
         try:
             from tkinter import messagebox
+
             messagebox.showerror("Portable storage unavailable", str(exc))
         except Exception:
             pass  # stderr remains available if Tk/display is unavailable.
         return 1
-    service = ProjectService(ProjectStore(paths.projects_file, portable_root=paths.portable_root))
+    service = ProjectService(
+        ProjectStore(paths.projects_file, portable_root=paths.portable_root)
+    )
 
     # Tk is imported only on GUI launch, so headless tests work without a display.
     try:
         import tkinter as tk
+
         from local_server.ui.main_window import MainWindow
     except ImportError as exc:
-        print(f"Tkinter is missing from this Python distribution: {exc}", file=sys.stderr)
+        print(
+            f"Tkinter is missing from this Python distribution: {exc}", file=sys.stderr
+        )
         return 1
 
     try:

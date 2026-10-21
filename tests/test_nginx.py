@@ -1,7 +1,5 @@
 """Localhost-only generated Nginx config tests."""
 
-from __future__ import annotations
-
 import tempfile
 import unittest
 from dataclasses import replace
@@ -15,6 +13,7 @@ class NginxConfigTests(unittest.TestCase):
     """Generated web-server configuration must be isolated by default."""
 
     def setUp(self) -> None:
+        """Create isolated test resources."""
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
         self.root = Path(self.temp.name)
@@ -30,9 +29,7 @@ class NginxConfigTests(unittest.TestCase):
 
     def test_fastcgi_upstream(self) -> None:
         """A configured PHP port produces an explicit loopback FastCGI target."""
-        config = render_nginx_config(
-            self.profile, self.root, php_upstream_port=9000
-        )
+        config = render_nginx_config(self.profile, self.root, php_upstream_port=9000)
         self.assertIn("fastcgi_pass 127.0.0.1:9000;", config)
         self.assertIn("fastcgi_param SCRIPT_FILENAME", config)
 
@@ -44,9 +41,7 @@ class NginxConfigTests(unittest.TestCase):
     def test_reject_wrong_backend(self) -> None:
         """Apache profiles cannot silently receive Nginx configuration."""
         with self.assertRaises(ValueError):
-            render_nginx_config(
-                replace(self.profile, server="apache"), self.root
-            )
+            render_nginx_config(replace(self.profile, server="apache"), self.root)
 
 
 if __name__ == "__main__":

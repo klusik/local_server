@@ -1,7 +1,5 @@
 """Atomic persistence and corrupt-config handling tests."""
 
-from __future__ import annotations
-
 import json
 import tempfile
 import unittest
@@ -16,6 +14,7 @@ class ProjectStoreTests(unittest.TestCase):
     """Project storage must preserve valid workspaces and reject corruption."""
 
     def setUp(self) -> None:
+        """Create isolated test resources."""
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
         self.root = Path(self.temp.name)

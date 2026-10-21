@@ -4,8 +4,6 @@ Run with PYTHONPATH=src. --acquire downloads only the two selected, pinned catal
 entries into the application's packages folder. It never starts Apache/MySQL.
 """
 
-from __future__ import annotations
-
 import argparse
 import http.client
 import json
@@ -26,7 +24,15 @@ from local_server.runtime.ports import PortReservation
 
 
 def request(port: int, path: str) -> tuple[int, bytes]:
-    """Read one bounded loopback response without proxies or redirects."""
+    """Read one bounded loopback response without proxies or redirects.
+
+    Args:
+        port (int): Loopback TCP port; zero requests an ephemeral port where supported.
+        path (str): HTTP request target relative to the loopback server.
+
+    Returns:
+        tuple[int, bytes]: HTTP response status and bounded response bytes.
+    """
     connection = http.client.HTTPConnection("127.0.0.1", port, timeout=3)
     try:
         connection.request("GET", path)
@@ -37,7 +43,11 @@ def request(port: int, path: str) -> tuple[int, bytes]:
 
 
 def free_port() -> int:
-    """Find a diagnostic port; runtime startup reserves and checks it again."""
+    """Find a diagnostic port; runtime startup reserves and checks it again.
+
+    Returns:
+        int: Currently free unprivileged loopback port; startup must reserve it again.
+    """
     reservation = PortReservation()
     port = reservation.port
     reservation.close()
@@ -63,11 +73,15 @@ def main() -> None:
     temporary = repository / ".test-tmp"
     temporary.mkdir(exist_ok=True)
     source_paths = AppPaths(temporary / "acquisition-state", repository)
-    installer = ComponentInstaller(source_paths, target, runtime_bundles=catalog.runtime_bundles)
+    installer = ComponentInstaller(
+        source_paths, target, runtime_bundles=catalog.runtime_bundles
+    )
     for package in (nginx, php):
         if not installer.installed_path(package).is_dir():
             if not args.acquire:
-                parser.error("Package missing; use --acquire for the selected verified archives")
+                parser.error(
+                    "Package missing; use --acquire for the selected verified archives"
+                )
             print("Acquiring", package.key, flush=True)
             installer.install(package)
     with tempfile.TemporaryDirectory(prefix="real runtime ", dir=temporary) as folder:
@@ -75,7 +89,9 @@ def main() -> None:
         application = workspace / "original application"
         paths = AppPaths(application / ".local-server", application)
         for package in (nginx, php):
-            shutil.copytree(installer.installed_path(package), paths.components / package.key)
+            shutil.copytree(
+                installer.installed_path(package), paths.components / package.key
+            )
         site = application / "sites" / "temporary PHP site"
         site.mkdir(parents=True)
         source = b"<?php echo 'smoke:' . PHP_VERSION;"
@@ -83,8 +99,14 @@ def main() -> None:
         (site / "index.php.bak").write_bytes(source)
         (site / "example.phtml").write_bytes(source)
         (site / "plain.txt").write_text("static smoke", encoding="utf-8")
-        project = ProjectProfile.create("Smoke", site, php_version=php.version,
-            nginx_package=nginx.key, php_package=php.key, http_port=free_port())
+        project = ProjectProfile.create(
+            "Smoke",
+            site,
+            php_version=php.version,
+            nginx_package=nginx.key,
+            php_package=php.key,
+            http_port=free_port(),
+        )
         store = ProjectStore(paths.projects_file, portable_root=application)
         store.save([project])
         results = []
@@ -100,14 +122,31 @@ def main() -> None:
             controller = RuntimeController(paths, manager, target)
             try:
                 controller.start(project)
-                assert request(project.http_port, "/index.php") == (200, ("smoke:" + php.version).encode())
-                assert request(project.http_port, "/plain.txt") == (200, b"static smoke")
-                for path in ("/index.php.bak", "/example.phtml", "/index.php/anything", "/index.php.", "/index.php%20"):
+                assert request(project.http_port, "/index.php") == (
+                    200,
+                    ("smoke:" + php.version).encode(),
+                )
+                assert request(project.http_port, "/plain.txt") == (
+                    200,
+                    b"static smoke",
+                )
+                for path in (
+                    "/index.php.bak",
+                    "/example.phtml",
+                    "/index.php/anything",
+                    "/index.php.",
+                    "/index.php%20",
+                ):
                     status, body = request(project.http_port, path)
-                    assert b"<?php" not in body and (status != 200 or body == ("smoke:" + php.version).encode()), (path, status, body)
+                    assert b"<?php" not in body and (
+                        status != 200 or body == ("smoke:" + php.version).encode()
+                    ), (path, status, body)
                 # Another state directory must still respect the same package lease.
                 other_paths = AppPaths(application / "other-state", application)
-                other = PackageManager(ComponentInstaller(other_paths, target), ProjectStore(other_paths.projects_file))
+                other = PackageManager(
+                    ComponentInstaller(other_paths, target),
+                    ProjectStore(other_paths.projects_file),
+                )
                 try:
                     other.remove(php)
                 except RuntimeError:
@@ -122,8 +161,12 @@ def main() -> None:
                 else:
                     duplicate.close()
                     raise AssertionError("Duplicate project was allowed")
-                second = replace(project, id=ProjectProfile.create("Other", site).id,
-                                 name="Other", http_port=free_port())
+                second = replace(
+                    project,
+                    id=ProjectProfile.create("Other", site).id,
+                    name="Other",
+                    http_port=free_port(),
+                )
                 controller.start(second)
                 assert request(second.http_port, "/index.php")[0] == 200
                 controller.stop(second.id)
@@ -133,20 +176,47 @@ def main() -> None:
                 controller.supervisor.stop("php-" + project.id)
                 status, body = request(project.http_port, "/index.php")
                 assert status == 502 and b"<?php" not in body, (status, body)
-                for path in ("/index.php.", "/index.php%20", "/index.php.bak", "/index.php/anything", "/example.phtml"):
+                for path in (
+                    "/index.php.",
+                    "/index.php%20",
+                    "/index.php.bak",
+                    "/index.php/anything",
+                    "/example.phtml",
+                ):
                     status, body = request(project.http_port, path)
                     assert status != 200 and b"<?php" not in body, (path, status, body)
                 assert controller.monitor()[0].state == "error"
                 assert not controller.runs and not manager._leases
-                assert (Path(project.document_root) / "index.php").read_bytes() == source
+                assert (
+                    Path(project.document_root) / "index.php"
+                ).read_bytes() == source
                 assert {p.name for p in Path(project.document_root).iterdir()} == {
-                    "index.php", "index.php.bak", "example.phtml", "plain.txt"}
-                results.append({"relocated": relocation, "php": php.key, "nginx": nginx.key,
-                                "start_restart_stop": "passed", "source_disclosure": "blocked",
-                                "cross_instance_removal": "blocked", "parallel_projects": "passed"})
+                    "index.php",
+                    "index.php.bak",
+                    "example.phtml",
+                    "plain.txt",
+                }
+                results.append(
+                    {
+                        "relocated": relocation,
+                        "php": php.key,
+                        "nginx": nginx.key,
+                        "start_restart_stop": "passed",
+                        "source_disclosure": "blocked",
+                        "cross_instance_removal": "blocked",
+                        "parallel_projects": "passed",
+                    }
+                )
             except BaseException:
-                for log in [*paths.logs.glob("*.log"), *paths.project_config_dir(project.id).glob("*.log")]:
-                    print(log.name, log.read_text(encoding="utf-8", errors="replace")[-8000:], flush=True)
+                for log in [
+                    *paths.logs.glob("*.log"),
+                    *paths.project_config_dir(project.id).glob("*.log"),
+                ]:
+                    print(
+                        log.name,
+                        log.read_text(encoding="utf-8", errors="replace")[-8000:],
+                        flush=True,
+                    )
                 raise
             finally:
                 controller.close()

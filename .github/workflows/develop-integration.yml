@@ -1,0 +1,101 @@
+name: Develop integrate
+run-name: Integrate ${{ github.ref_name }} into develop
+
+# Local reusable workflows resolve from this selected workflow commit too.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: develop-integration
+  cancel-in-progress: false
+
+jobs:
+  select:
+    name: Authorize and pin source/develop
+    if: ${{ github.event_name == 'workflow_dispatch' && startsWith(github.ref, 'refs/heads/') }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    outputs:
+      candidate: ${{ steps.select.outputs.candidate }}
+      base: ${{ steps.select.outputs.base }}
+    steps:
+      - name: Require maintainer selection of branch-owned CI
+        uses: actions/github-script@v9
+        with:
+          script: |
+            for (const actor of new Set([context.actor, process.env.GITHUB_TRIGGERING_ACTOR])) {
+              const {data} = await github.rest.repos.getCollaboratorPermissionLevel({
+                ...context.repo, username: actor,
+              });
+              if (!['admin', 'maintain'].includes(data.permission)) {
+                throw new Error('Branch-owned integration requires an admin or maintainer.');
+              }
+            }
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.14"
+      - id: select
+        name: Pin exact candidate and require fast-forward ancestry
+        env:
+          SOURCE_BRANCH: ${{ github.ref_name }}
+          CANDIDATE: ${{ github.sha }}
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          export GIT_CONFIG_COUNT=1
+          export GIT_CONFIG_KEY_0=http.https://github.com/.extraheader
+          export GIT_CONFIG_VALUE_0="AUTHORIZATION: basic $(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)"
+          python tools/integrate_develop.py select --branch "$SOURCE_BRANCH" --candidate "$CANDIDATE"
+
+  basic:
+    needs: select
+    uses: ./.github/workflows/basic-checks.yml
+    with:
+      candidate: ${{ needs.select.outputs.candidate }}
+
+  full:
+    needs: [select, basic]
+    uses: ./.github/workflows/python-checks.yml
+    with:
+      candidate: ${{ needs.select.outputs.candidate }}
+
+  publish:
+    name: Fast-forward develop to tested commit
+    needs: [select, basic, full]
+    if: ${{ github.event_name == 'workflow_dispatch' && needs.basic.result == 'success' && needs.full.result == 'success' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.select.outputs.candidate }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.14"
+      - name: Recheck branches and publish without merge, rebase or force
+        env:
+          SOURCE_BRANCH: ${{ github.ref_name }}
+          CANDIDATE: ${{ needs.select.outputs.candidate }}
+          EXPECTED_DEVELOP: ${{ needs.select.outputs.base }}
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          export GIT_CONFIG_COUNT=1
+          export GIT_CONFIG_KEY_0=http.https://github.com/.extraheader
+          export GIT_CONFIG_VALUE_0="AUTHORIZATION: basic $(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)"
+          python tools/integrate_develop.py publish --branch "$SOURCE_BRANCH" --candidate "$CANDIDATE" --base "$EXPECTED_DEVELOP"
+          printf 'Integrated `%s` from `%s` into `develop`.\n' "$CANDIDATE" "$SOURCE_BRANCH" >> "$GITHUB_STEP_SUMMARY"

@@ -1,7 +1,5 @@
 """Platform label normalization tests."""
 
-from __future__ import annotations
-
 import unittest
 from unittest.mock import patch
 
@@ -13,8 +11,9 @@ class PlatformTests(unittest.TestCase):
 
     def test_windows_x86_64(self) -> None:
         """Windows AMD64 maps to one stable catalog identifier."""
-        with patch("local_server.core.platform.sys.platform", "win32"), patch(
-            "local_server.core.platform.platform.machine", return_value="AMD64"
+        with (
+            patch("local_server.core.platform.sys.platform", "win32"),
+            patch("local_server.core.platform.platform.machine", return_value="AMD64"),
         ):
             self.assertEqual(
                 PlatformTarget.detect(), PlatformTarget("windows", "x86_64")
@@ -22,8 +21,9 @@ class PlatformTests(unittest.TestCase):
 
     def test_macos_arm64(self) -> None:
         """Apple Silicon maps to macos/arm64."""
-        with patch("local_server.core.platform.sys.platform", "darwin"), patch(
-            "local_server.core.platform.platform.machine", return_value="arm64"
+        with (
+            patch("local_server.core.platform.sys.platform", "darwin"),
+            patch("local_server.core.platform.platform.machine", return_value="arm64"),
         ):
             self.assertEqual(PlatformTarget.detect(), PlatformTarget("macos", "arm64"))
 

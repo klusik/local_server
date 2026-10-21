@@ -1,0 +1,51 @@
+name: BASIC source checks
+
+on:
+  workflow_call:
+    inputs:
+      candidate:
+        description: Immutable commit selected by the calling workflow.
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  source:
+    name: BASIC (source policy and CI regression tests)
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.candidate }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.14"
+          cache: pip
+          cache-dependency-path: pyproject.toml
+      - name: Install pinned development tools
+        run: python -m pip install -e '.[dev]'
+      - name: Require a single squash commit before qualifying a develop PR
+        if: ${{ github.event_name == 'pull_request' && github.base_ref == 'develop' }}
+        env:
+          SOURCE_SHA: ${{ github.event.pull_request.head.sha }}
+          DEVELOP_SHA: ${{ github.event.pull_request.base.sha }}
+        run: python tools/integrate_develop.py check-squash --candidate "$SOURCE_SHA" --base "$DEVELOP_SHA"
+      - name: Lint and Google docstrings
+        run: python -m ruff check src tests tools
+      - name: Check formatting (88-column target)
+        run: python -m ruff format --check src tests tools
+      - name: Strict type checking
+        run: python -m mypy
+      - name: Check Python 3.14 policy, 100-column limit and MVC boundaries
+        run: python tools/check_source.py
+      - name: Test source-policy enforcement
+        run: python -m unittest discover -s tests -p test_source_policy.py -v
+      - name: Test fast-forward and workflow safety
+        run: python -m unittest discover -s tests -p test_develop_integration.py -v
+      - name: Validate workflow authorization graph
+        run: python tools/check_workflows.py

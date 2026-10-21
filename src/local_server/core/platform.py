@@ -1,7 +1,5 @@
 """Normalize supported operating systems and CPU architectures."""
 
-from __future__ import annotations
-
 import platform
 import sys
 from dataclasses import dataclass
@@ -15,8 +13,12 @@ class PlatformTarget:
     arch: str
 
     @classmethod
-    def detect(cls) -> PlatformTarget:
-        """Detect a supported Windows or macOS platform."""
+    def detect(cls) -> "PlatformTarget":
+        """Detect a supported Windows or macOS platform.
+
+        Returns:
+            PlatformTarget: Normalized supported operating-system and CPU identifiers.
+        """
         if sys.platform == "win32":
             os_name = "windows"
         elif sys.platform == "darwin":

@@ -2,7 +2,7 @@
 
 Acquisition targets **Windows 10/11 x64**. Archives and PE data were inspected
 without running binaries. Locally available means extracted with a receipt, not
-runtime-functional. Python 3.11+ with Tk is still required; this feature does not
+runtime-functional. Python 3.14+ with Tk is still required; this feature does not
 produce a frozen self-contained application.
 
 | Component | Reviewed acquisition | Requirements / limits |

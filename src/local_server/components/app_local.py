@@ -1,7 +1,5 @@
 """Acquire and copy only pinned MSVC DLLs beside a staged server executable."""
 
-from __future__ import annotations
-
 import hashlib
 import json
 import os
@@ -9,7 +7,7 @@ import struct
 import tempfile
 from dataclasses import asdict
 from pathlib import Path
-from typing import BinaryIO, Callable
+from typing import IO, Callable
 
 from local_server.core.paths import AppPaths, reject_links
 
@@ -19,16 +17,24 @@ from .runtime_bundle import RuntimeBundle
 RUNTIME_RECEIPT = ".local-server-runtime.json"
 Check = Callable[[], None]
 Progress = Callable[[str, int, int], None]
-Download = Callable[[RuntimeBundle, BinaryIO, Check, Progress], None]
+Download = Callable[[RuntimeBundle, IO[bytes], Check, Progress], None]
 
 
 class RuntimeIntegrityError(ValueError):
     """A reviewed app-local DLL or cached runtime has changed."""
 
 
-def verify_runtime_files(bundle: RuntimeBundle, root: Path, *, deployed: bool,
-                         check: Check = lambda: None) -> None:
-    """Check each pinned DLL's bytes and x64 PE header without loading code."""
+def verify_runtime_files(
+    bundle: RuntimeBundle, root: Path, *, deployed: bool, check: Check = lambda: None
+) -> None:
+    """Check each pinned DLL's bytes and x64 PE header without loading code.
+
+    Args:
+        bundle (RuntimeBundle): Reviewed runtime archive and per-file checksum metadata.
+        root (Path): Private root directory containing the managed resource.
+        deployed (bool): Whether paths refer to DLLs beside the server executable.
+        check (Check): Callback that raises when cancellation is requested.
+    """
     for dll in bundle.files:
         check()
         path = root / (dll.name if deployed else dll.source)
@@ -44,24 +50,53 @@ def verify_runtime_files(bundle: RuntimeBundle, root: Path, *, deployed: bool,
                 stream.seek(0)
                 header = stream.read(64)
                 if len(header) != 64 or header[:2] != b"MZ":
-                    raise RuntimeIntegrityError(f"Runtime DLL is not a PE image: {dll.name}")
+                    raise RuntimeIntegrityError(
+                        f"Runtime DLL is not a PE image: {dll.name}"
+                    )
                 offset = struct.unpack_from("<I", header, 60)[0]
                 if offset > 1024 * 1024:
                     raise RuntimeIntegrityError("Invalid runtime DLL header")
                 stream.seek(offset)
                 pe = stream.read(6)
         except OSError as exc:
-            raise RuntimeIntegrityError(f"Runtime DLL is missing or unreadable: {dll.name}") from exc
+            raise RuntimeIntegrityError(
+                f"Runtime DLL is missing or unreadable: {dll.name}"
+            ) from exc
         if digest.hexdigest().lower() != dll.sha256.lower():
             raise RuntimeIntegrityError(f"Runtime DLL SHA-256 mismatch: {dll.name}")
-        if len(pe) != 6 or pe[:4] != b"PE\0\0" or struct.unpack_from("<H", pe, 4)[0] != 0x8664:
+        if (
+            len(pe) != 6
+            or pe[:4] != b"PE\0\0"
+            or struct.unpack_from("<H", pe, 4)[0] != 0x8664
+        ):
             raise RuntimeIntegrityError(f"Runtime DLL is not Windows x64: {dll.name}")
 
 
-def prepare_runtime(bundle: RuntimeBundle, paths: AppPaths, *, download: Download,
-                    check: Check, progress: Progress,
-                    remove: Callable[[Path], None]) -> Path:
-    """Acquire a receipt-backed DLL cache while the caller holds the package lock."""
+def prepare_runtime(
+    bundle: RuntimeBundle,
+    paths: AppPaths,
+    *,
+    download: Download,
+    check: Check,
+    progress: Progress,
+    remove: Callable[[Path], None],
+) -> Path:
+    """Acquire a receipt-backed DLL cache while the caller holds the package lock.
+
+    Args:
+        bundle (RuntimeBundle): Reviewed runtime archive and per-file checksum metadata.
+        paths (AppPaths): Application-managed storage layout.
+        download (Download): Callback that acquires and verifies the reviewed runtime
+            archive.
+        check (Check): Callback that raises when cancellation is requested.
+        progress (Progress): Worker callback reporting completed work without updating
+            Tk.
+        remove (Callable[[Path], None]): Whether to remove the selected package rather
+            than install it.
+
+    Returns:
+        Path: Verified runtime cache directory ready for app-local deployment.
+    """
     bundle.validate()
     target = paths.runtime_cache / bundle.id
     reject_links(paths.components, target)
@@ -71,9 +106,13 @@ def prepare_runtime(bundle: RuntimeBundle, paths: AppPaths, *, download: Downloa
             reject_links(target, receipt)
             if receipt.stat().st_size > 64 * 1024:
                 raise RuntimeIntegrityError("Oversized runtime receipt")
-            cached = RuntimeBundle.from_dict(json.loads(receipt.read_text(encoding="utf-8")))
+            cached = RuntimeBundle.from_dict(
+                json.loads(receipt.read_text(encoding="utf-8"))
+            )
             if cached != bundle:
-                raise RuntimeIntegrityError("Runtime receipt differs from reviewed metadata")
+                raise RuntimeIntegrityError(
+                    "Runtime receipt differs from reviewed metadata"
+                )
             verify_runtime_files(bundle, target, deployed=False, check=check)
             _verify_notices(bundle, target)
             return target
@@ -85,12 +124,19 @@ def prepare_runtime(bundle: RuntimeBundle, paths: AppPaths, *, download: Downloa
     archive_name: str | None = None
     staging: Path | None = None
     try:
-        with tempfile.NamedTemporaryFile(dir=paths.downloads, prefix=".package-", delete=False) as stream:
+        with tempfile.NamedTemporaryFile(
+            dir=paths.downloads, prefix=".package-", delete=False
+        ) as stream:
             archive_name = stream.name
             download(bundle, stream, check, progress)
         staging = Path(tempfile.mkdtemp(dir=paths.downloads, prefix=".install-"))
-        safe_extract(Path(archive_name), staging, "zip", check=check,
-                     progress=lambda done, total: progress("extracting", done, total))
+        safe_extract(
+            Path(archive_name),
+            staging,
+            "zip",
+            check=check,
+            progress=lambda done, total: progress("extracting", done, total),
+        )
         verify_runtime_files(bundle, staging, deployed=False, check=check)
         _verify_notices(bundle, staging)
         with (staging / RUNTIME_RECEIPT).open("x", encoding="utf-8") as stream:
@@ -111,6 +157,12 @@ def prepare_runtime(bundle: RuntimeBundle, paths: AppPaths, *, download: Downloa
 
 
 def _verify_notices(bundle: RuntimeBundle, root: Path) -> None:
+    """Verify that reviewed license notices accompany the runtime files.
+
+    Args:
+        bundle (RuntimeBundle): Reviewed runtime archive and per-file checksum metadata.
+        root (Path): Private root directory containing the managed resource.
+    """
     for relative in bundle.notices:
         path = root / relative
         reject_links(root, path)
@@ -118,9 +170,17 @@ def _verify_notices(bundle: RuntimeBundle, root: Path) -> None:
             raise RuntimeIntegrityError(f"Runtime license notice missing: {relative}")
 
 
-def deploy_runtime(bundle: RuntimeBundle, cache: Path, executable_dir: Path,
-                   *, check: Check) -> None:
-    """Copy pinned DLLs and notices locally; never change PATH or system files."""
+def deploy_runtime(
+    bundle: RuntimeBundle, cache: Path, executable_dir: Path, *, check: Check
+) -> None:
+    """Copy pinned DLLs and notices locally; never change PATH or system files.
+
+    Args:
+        bundle (RuntimeBundle): Reviewed runtime archive and per-file checksum metadata.
+        cache (Path): Private directory containing verified runtime files.
+        executable_dir (Path): Directory beside the staged server executable.
+        check (Check): Callback that raises when cancellation is requested.
+    """
     for dll in bundle.files:
         check()
         source = cache / dll.source
@@ -129,11 +189,15 @@ def deploy_runtime(bundle: RuntimeBundle, cache: Path, executable_dir: Path,
         reject_links(executable_dir, destination)
         if destination.exists():
             if destination.stat().st_size > 64 * 1024**2:
-                raise RuntimeIntegrityError(f"Conflicting runtime DLL is too large: {dll.name}")
+                raise RuntimeIntegrityError(
+                    f"Conflicting runtime DLL is too large: {dll.name}"
+                )
             with destination.open("rb") as existing:
                 digest = hashlib.file_digest(existing, "sha256").hexdigest()
             if digest.lower() != dll.sha256.lower():
-                raise RuntimeIntegrityError(f"Vendor archive contains a conflicting runtime DLL: {dll.name}")
+                raise RuntimeIntegrityError(
+                    f"Vendor archive contains a conflicting runtime DLL: {dll.name}"
+                )
         else:
             _copy_file(source, destination, check)
     verify_runtime_files(bundle, executable_dir, deployed=True, check=check)
@@ -147,6 +211,13 @@ def deploy_runtime(bundle: RuntimeBundle, cache: Path, executable_dir: Path,
 
 
 def _copy_file(source: Path, destination: Path, check: Check) -> None:
+    """Copy a verified file while honoring cancellation.
+
+    Args:
+        source (Path): Validated input stream or file path.
+        destination (Path): Private target path for the validated files.
+        check (Check): Callback that raises when cancellation is requested.
+    """
     with source.open("rb") as src, destination.open("xb") as dst:
         while block := src.read(256 * 1024):
             check()
