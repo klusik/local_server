@@ -7,6 +7,8 @@ import io
 import tempfile
 import unittest
 import zipfile
+import json
+import threading
 from dataclasses import replace
 from pathlib import Path
 from unittest.mock import patch
@@ -17,6 +19,8 @@ from local_server.components.installer import (
     ComponentInstaller,
     HTTPSOnlyRedirectHandler,
     IntegrityError,
+    DownloadCancelled,
+    RECEIPT,
 )
 from local_server.core.paths import AppPaths
 from local_server.core.platform import PlatformTarget
@@ -92,6 +96,54 @@ class InstallerTests(unittest.TestCase):
         wrong = replace(self.package, os="macos")
         with self.assertRaises(ValueError):
             self.installer.install(wrong)
+
+    def test_receipt_commits_only_after_all_phases(self) -> None:
+        """Availability includes a relative receipt and never implies health."""
+        phases: list[str] = []
+        def progress(state: str, done: int, total: int) -> None:
+            phases.append(state)
+            if state != "local":
+                self.assertFalse(self.installer.installed_path(self.package).exists())
+        with patch.object(self.installer, "_open", return_value=FakeHttpsResponse(self.archive_content)):
+            target = self.installer.install(self.package, progress=progress)
+        self.assertEqual(list(dict.fromkeys(phases)), ["downloading", "verifying", "extracting", "local"])
+        receipt = json.loads((target / RECEIPT).read_text())
+        self.assertFalse(receipt["runtime_verified"])
+        self.assertNotIn(str(self.root), json.dumps(receipt))
+        self.assertEqual(list(self.paths.downloads.iterdir()), [])
+
+    def test_cancel_each_phase_cleans_up_and_can_retry(self) -> None:
+        """Cancelled downloads, verification and extraction never become local."""
+        for phase in ("downloading", "verifying", "extracting"):
+            cancel = threading.Event()
+            def progress(state: str, done: int, total: int) -> None:
+                if state == phase:
+                    cancel.set()
+            with self.subTest(phase=phase), patch.object(self.installer, "_open", return_value=FakeHttpsResponse(self.archive_content)), self.assertRaises(DownloadCancelled):
+                self.installer.install(self.package, cancel=cancel, progress=progress)
+            self.assertFalse(self.installer.installed_path(self.package).exists())
+            self.assertEqual(list(self.paths.downloads.iterdir()), [])
+        with patch.object(self.installer, "_open", return_value=FakeHttpsResponse(self.archive_content)):
+            self.installer.install(self.package)
+
+    def test_size_mismatch_rejected_before_availability(self) -> None:
+        """A truncated response fails even when a server ends it cleanly."""
+        package = replace(self.package, size_bytes=len(self.archive_content) + 1)
+        with patch.object(self.installer, "_open", return_value=FakeHttpsResponse(self.archive_content)), self.assertRaises(IntegrityError):
+            self.installer.install(package)
+        self.assertFalse(self.installer.installed_path(package).exists())
+
+    def test_recovery_deletes_only_owned_staging(self) -> None:
+        """Crash recovery leaves unrelated files and persistent data untouched."""
+        self.paths.ensure()
+        partial = self.paths.downloads / ".install-abandoned"
+        partial.mkdir()
+        (partial / "binary").write_bytes(b"partial")
+        unrelated = self.paths.downloads / "keep.txt"
+        unrelated.write_text("keep")
+        self.installer.cleanup_incomplete()
+        self.assertFalse(partial.exists())
+        self.assertEqual(unrelated.read_text(), "keep")
 
 
 if __name__ == "__main__":

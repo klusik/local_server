@@ -19,7 +19,7 @@ src/local_server/
 ├── app.py              CLI composition root and Tk startup
 ├── core/
 │   ├── models.py       Validated per-site runtime selection
-│   ├── paths.py        Per-user data and binary directories
+│   ├── paths.py        Portable application root and explicit state overrides
 │   ├── platform.py     Windows/macOS + CPU normalization
 │   └── store.py        Versioned, atomic JSON persistence
 ├── services/
@@ -27,7 +27,12 @@ src/local_server/
 ├── components/
 │   ├── catalog.py      Reviewed package records and SHA-256 pins
 │   ├── installer.py    HTTPS download, verify, stage, activate
-│   └── archive.py      Safe ZIP and tar.gz extraction
+│   ├── archive.py      Safe ZIP and tar.gz extraction
+│   ├── manager.py      Receipt inventory, removal guards and worker events
+│   ├── locking.py      Cross-process package mutation / recovery lock
+│   ├── runtime_bundle.py Strict app-local MSVC DLL catalog schema
+│   ├── app_local.py    Verified runtime cache and local DLL deployment
+│   └── prerequisites.py Read-only OS/VC++ checks
 ├── runtime/
 │   ├── nginx.py        Foreground localhost-only config renderer
 │   ├── processes.py    Tracked local child process supervisor
@@ -40,25 +45,59 @@ src/local_server/
     └── dialogs.py      Modal profile editor
 ```
 
-All persistent state is under the per-user application home:
+The application root is derived from code/executable location, never cwd. Source
+checkouts use the repository root. Frozen builds use `sys.executable`'s directory;
+macOS `.app` builds use the folder containing the bundle. Temporary bundle
+extraction locations are not storage roots. For non-editable Python installations,
+an absolute launcher path determines the application folder, falling back to the
+Python executable directory. Such a directory must be writable; no silent fallback.
 
-| Platform | Default root |
-| --- | --- |
-| Windows | `%LOCALAPPDATA%\LocalServer` |
-| macOS | `~/Library/Application Support/LocalServer` |
-| Other OS (developer-only) | `~/.local/share/local-server` |
+Packages always use `<application>/packages/<name>/<version>/<os>-<arch>/<variant>/`.
+Receipts inside each completed package store metadata with relative entrypoints
+and `runtime_verified: false`; no absolute package path is persisted. Archives and
+private extraction/removal staging use `packages/.staging/` on the same filesystem.
+An OS-released `.manager.lock` serializes acquisition, removal and crash recovery
+across application instances. Recovery removes only owned staging prefixes while
+holding that lock. No background download occurs on launch.
 
-`LOCAL_SERVER_HOME` or `--data-dir` can override the state root explicitly.
-The layout consists of `projects.json`, `downloads/`, `components/`, `logs/`
-and `generated/<project-uuid>/`. Component installations use
-`components/<name>/<version>/<os>-<arch>/`, never `Program Files`,
-`/usr/local` or other system paths.
+Optional `runtime_bundle` references resolve through the catalog's reviewed
+`runtime_bundles` list. A matching ZIP is acquired in the same worker transaction,
+verified against its archive hash/size, safely extracted, and cached under
+`packages/.runtime-cache/<bundle-id>/`. Each selected DLL must also match its own
+SHA-256, permitted MSVC filename and x64 PE machine type. Copies go directly beside
+the staged executable, never into system directories or PATH. Vendor DLL conflicts
+fail rather than being overwritten. License notices accompany the local DLLs.
+The final server receipt contains the bundle metadata; inventory rechecks deployed
+DLL hashes. Cache corruption is discarded safely and reviewed bytes fetched again.
+Cancellation cleans partial dependency downloads; a complete reusable cache may
+remain. Removing a server removes its DLL copies and keeps the shared cache.
+No cache-pruning UI is implemented yet.
+
+This mechanism is implemented, but `runtime_bundles` is intentionally empty until
+actual DLL source, hashes and redistribution rights are reviewed. Current server
+records therefore still enforce the host VC++ runtime. Adding a reviewed bundle
+and package reference requires no end-user SDK, compilation or DLL selection.
+
+State defaults to `<application>/.local-server/`, containing `projects.json`,
+`generated/<project-uuid>/`, `logs/` and `data/` (reserved future database storage,
+not initialized). Priority: CLI `--data-dir` > absolute `LOCAL_SERVER_HOME` > portable
+default. An explicit state override does not move packages. An external override
+must be copied/reassigned separately when moving the application. Write probes
+fail with an actionable error; no system installation or per-user fallback.
+
+Previous `%LOCALAPPDATA%/LocalServer`, macOS Application Support or developer XDG
+state is not automatically scanned, migrated or removed. To migrate deliberately,
+close the application and copy the old `projects.json` into the new `.local-server`
+folder, or select the old root via `--data-dir`. Schema 1 is read and upgraded to
+schema 2 on the next save. Legacy `components/` trees lack acquisition receipts and
+are not silently trusted; download reviewed packages again. Keep existing source
+and database data separately; no destructive migration is performed.
 
 ## Project profile example
 
 ```json
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "projects": [
     {
       "id": "a49d1177-4169-4d86-bf41-faf55c4bb175",
@@ -73,8 +112,14 @@ and `generated/<project-uuid>/`. Component installations use
 }
 ```
 
-This sample uses a macOS directory. Windows stores an absolute Windows path.
-Configurations are machine-local, not portable exports.
+This sample uses an external macOS directory. External absolute paths, including
+foreign-OS paths, remain explicit and loadable for reassignment. Internal document
+roots are serialized as `{"portable": "sites/gallery"}` relative to the application
+root and resolved on load with escape protection. Missing roots are detected off
+the Tk thread; Projects offers explicit reassignment with a native folder picker.
+A different directory that happens to exist at an old external path cannot be
+identified automatically. Generated server configurations must be regenerated for
+the current location; static previews are rendered afresh, not persisted as truth.
 
 An HTTP port is currently unique across saved profiles. Simultaneous Nginx
 instances must use separate ports, while upstream PHP ports will also be
@@ -124,19 +169,37 @@ HTTPS archive URL, SHA-256 digest, archive layout and expected executable.
 `ComponentInstaller` currently supports ZIP and tar.gz archives, not MSI, PKG,
 DMG, arbitrary installer scripts or source compilation.
 
-1. Reject unsupported platform/catalog records.
+1. Reject unsupported platform/catalog records and unmet host prerequisites.
 2. Stream-download into private temporary storage with bounded size.
 3. Verify the full archive against the pinned SHA-256.
 4. Preflight all archive entries, rejecting traversal and links.
 5. Extract only regular files to an empty private staging directory.
-6. Ensure the expected executable exists, then rename the staging directory
-   into the side-by-side component location.
+6. Ensure the expected executable exists and its PE machine matches the reviewed
+   Windows record; write the relative receipt, then rename the staging directory
+   into the side-by-side package location.
 7. Clean up temporary archives and partial installations on failure.
 
-The initial bundled catalog is deliberately empty, so no unreviewed version
-is offered for download. The installer library is functional and covered by
-network-free unit tests; the component acquisition UI and automatic integration
-are future milestones.
+The bundled catalog has seven statically inspected Windows x64 acquisition
+records; Nginx is explicitly x86/WoW64. No macOS/ARM64 downloads are offered.
+See [review evidence](PACKAGE_REVIEW.md). Network-free tests were extended for
+the new behavior but have not been run for this feature.
+
+Components uses a Tk-independent worker and throttled immutable events; Tk polls
+a queue on the main thread. Downloading, verifying and extracting are separate
+phases with byte progress and cooperative cancellation. HTTPS operations have a
+10-second socket timeout, not an immediate cancellation guarantee. Retry starts a
+new transfer without range-resume. Closing keeps Tk alive until cleanup finishes.
+Profile disk IO and folder validation also run behind a main-thread queue bridge.
+
+Inventory is discovered from committed receipts, including older catalog versions.
+Removal detaches one package into staging before deletion and refuses links and
+junctions. Project roots and `data/` are outside the removal boundary. Guards
+conservatively block components requested by saved profiles; PHP matches exact
+versions or the requested minor line. Reference-counted in-process usage leases
+prepare the runtime boundary. Future runtimes must integrate leases and durable
+cross-instance ownership/orphan recovery before startup is enabled. No runtime
+is currently started by the application, and unmanaged external processes cannot
+be reliably identified by these guards.
 
 ## Process ownership and crash recovery
 

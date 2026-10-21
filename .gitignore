@@ -22,6 +22,7 @@ htmlcov/
 Thumbs.db
 
 # Local state, logs, downloaded binaries
+/packages/
 .local-server/
 runtime/
 downloads/

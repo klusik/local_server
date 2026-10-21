@@ -31,7 +31,7 @@ class ProjectStoreTests(unittest.TestCase):
         self.store.save([site])
         self.assertEqual(self.store.load(), [site])
         data = json.loads(self.store.filename.read_text(encoding="utf-8"))
-        self.assertEqual(data["schema_version"], 1)
+        self.assertEqual(data["schema_version"], 2)
         self.assertEqual(list(self.store.filename.parent.glob("*.tmp")), [])
 
     def test_invalid_json_is_not_overwritten(self) -> None:

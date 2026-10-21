@@ -5,7 +5,7 @@ from __future__ import annotations
 import re
 import uuid
 from dataclasses import asdict, dataclass
-from pathlib import Path
+from pathlib import Path, PureWindowsPath, PurePosixPath
 from typing import Any, Mapping
 
 SERVERS = frozenset({"nginx", "apache"})
@@ -36,7 +36,7 @@ class ProjectProfile:
             raise ValueError("Project name has invalid whitespace or length")
         if not isinstance(self.document_root, str) or not self.document_root:
             raise ValueError("Document root is required")
-        if not Path(self.document_root).expanduser().is_absolute():
+        if not (PureWindowsPath(self.document_root).is_absolute() or PurePosixPath(self.document_root).is_absolute()):
             raise ValueError("Document root must be an absolute path")
         if not isinstance(self.server, str) or self.server not in SERVERS:
             raise ValueError("Server must be nginx or apache")

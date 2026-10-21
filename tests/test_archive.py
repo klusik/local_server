@@ -94,6 +94,41 @@ class ArchiveTests(unittest.TestCase):
         with self.assertRaises(ArchiveSafetyError):
             safe_extract(archive, self.staging, "tar.gz")
 
+    def test_reject_case_collisions_on_every_host(self) -> None:
+        """Archives reviewed on Linux must also be safe on Windows filesystems."""
+        for paths in (("BIN/php.exe", "bin/PHP.exe"), ("Bin", "bin/php.exe")):
+            archive = self.root / "case.zip"
+            with zipfile.ZipFile(archive, "w") as writer:
+                for name in paths:
+                    writer.writestr(name, b"payload")
+            with self.assertRaises(ArchiveSafetyError):
+                safe_extract(archive, self.staging, "zip")
+            self.assertEqual(list(self.staging.iterdir()), [])
+
+    def test_reject_additional_windows_names(self) -> None:
+        """DOS superscript aliases, controls and illegal characters are unsafe."""
+        for name in ("COM¹.txt", "LPT²", "a?b", 'a"b', "a\x01b", "NUL .txt"):
+            archive = self.root / "name.zip"
+            with zipfile.ZipFile(archive, "w") as writer:
+                writer.writestr(name, b"payload")
+            with self.subTest(name=name), self.assertRaises(ArchiveSafetyError):
+                safe_extract(archive, self.staging, "zip")
+
+    def test_cancel_during_large_member(self) -> None:
+        """Cancellation is observed between disk writes, not just between files."""
+        archive = self.root / "large.zip"
+        with zipfile.ZipFile(archive, "w") as writer:
+            writer.writestr("large", b"x" * (3 * 1024 * 1024))
+        written = 0
+        def progress(done: int, total: int) -> None:
+            nonlocal written
+            written = done
+        def check() -> None:
+            if written:
+                raise InterruptedError("cancelled")
+        with self.assertRaises(InterruptedError):
+            safe_extract(archive, self.staging, "zip", check=check, progress=progress)
+
 
 if __name__ == "__main__":
     unittest.main()

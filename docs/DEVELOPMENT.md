@@ -70,12 +70,16 @@ Full HTTP/PHP/MySQL integration tests must be added with real vetted binaries.
 
 Normal state paths are described in [Architecture](ARCHITECTURE.md). For a test
 workspace, pass `--data-dir` or set the absolute `LOCAL_SERVER_HOME`
-environment variable. Runtime archives and logs are kept outside the source
-checkout and are never committed.
+environment variable for state. Packages always remain beside the application,
+including in an editable source checkout. `packages/` and `.local-server/` are
+ignored; never add archives, binaries or review scratch files to Git.
 
-The main window can currently add/edit/delete profiles, show requested
-components and preview a static-only Nginx config. It does **not** download
-component binaries, start servers, initialize MySQL or hot-switch PHP.
+The main window edits profiles and previews Nginx config. Components manages
+reviewed portable archives with progress, cancellation/retry and guarded removal.
+It does not start servers, initialize MySQL or switch running PHP versions.
+See [artifact review](PACKAGE_REVIEW.md) for what was inspected and what remains
+untested. The tests added on `feature/portable-packages` were intentionally not run
+during implementation at the user's request; CI has not been triggered by a push.
 
 ## Design constraints
 

@@ -1,5 +1,7 @@
 # Agent guidance
 
+For UI changes, read and follow [AGENTS_DESIGN.md](AGENTS_DESIGN.md).
+
 This is a Python 3.11+ desktop project using Tkinter for Windows/macOS.
 Read README.md and docs/ARCHITECTURE.md, docs/SECURITY.md and docs/ROADMAP.md
 before altering runtime or installer behavior.
