@@ -2,11 +2,12 @@
 
 Cross-platform desktop manager for isolated local web development environments.
 
-> **Status: portable package management implemented; runtime integration pending.**
+> **Status: Windows x64 Nginx + PHP runtime implemented and smoke-tested.**
 > Components provides explicit downloads, SHA-256 verification, safe extraction,
 > cancellation/retry and removal. The reviewed catalog targets Windows x64.
-> No server is started, MySQL is not initialized and PHP switching is not implemented.
-> The new workflow has not yet been executed or tested on a clean target machine.
+> Projects can start, stop and restart explicitly selected local Nginx/PHP packages.
+> Apache, MySQL and live PHP switching remain unimplemented. Clean Windows without
+> a system VC++ runtime remains unsupported until an app-local DLL bundle is approved.
 
 ## Goals
 
@@ -32,7 +33,11 @@ The desktop workspace includes project search, web-server filtering, a selected
 profile summary and local URL copying. Use Ctrl+F to search, Ctrl+N to add a
 profile and F5 to reload profiles. New profiles suggest a port not already used
 by a saved profile; this does not check operating-system port availability.
-These controls manage configuration only; runtime startup is not available yet.
+Download Nginx and PHP in Components, then select their exact local packages in
+the project editor and use Start. A running state requires an executed PHP probe;
+Open website and Logs become available in the project actions. Stop before editing
+the running profile. Nothing starts automatically when opening Local Server.
+See [runtime behavior and verification](docs/RUNTIME.md).
 
 See [Architecture](docs/ARCHITECTURE.md), [Development](docs/DEVELOPMENT.md), [Security](docs/SECURITY.md), and [Roadmap](docs/ROADMAP.md).
 
@@ -80,7 +85,7 @@ In **Components**, choose a component/version and use Download. The table separa
 downloading, verifying, extracting, locally available and error states. `×` cancels;
 Retry starts a fresh transfer. `ⓘ` shows source/license/requirements/error detail.
 Remove deletes one binary version and refuses versions requested by project
-profiles or reserved through the future runtime usage API. It keeps projects and
+profiles or reserved by runtimes in any instance sharing the package folder. It keeps projects and
 database data. Local availability does **not** certify a working runtime.
 
 ## Development status
@@ -88,6 +93,6 @@ database data. Local availability does **not** certify a working runtime.
 See [reviewed artifacts and hashes](docs/PACKAGE_REVIEW.md),
 [catalog policy](docs/PACKAGE_CATALOG.md) and [compatibility](docs/COMPATIBILITY.md).
 The repository ships metadata, not third-party binaries. Signature verification,
-clean-machine runtime smoke tests, full stack startup and frozen app packaging
+clean-machine runtime smoke tests, Apache/MySQL startup and frozen app packaging
 remain future work. Existing per-user state is not silently imported; migration
 is described in [Architecture](docs/ARCHITECTURE.md).

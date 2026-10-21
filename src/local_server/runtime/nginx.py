@@ -20,6 +20,7 @@ def render_nginx_config(
     config_dir: Path,
     *,
     php_upstream_port: int | None = None,
+    diagnostic: tuple[str, Path] | None = None,
 ) -> str:
     """Render an isolated foreground server restricted to 127.0.0.1.
 
@@ -32,7 +33,7 @@ def render_nginx_config(
     if php_upstream_port is not None and (
         isinstance(php_upstream_port, bool)
         or not isinstance(php_upstream_port, int)
-        or not 1 <= php_upstream_port <= 65535
+        or not 1024 <= php_upstream_port <= 65535
         or php_upstream_port == project.http_port
     ):
         raise ValueError("Invalid PHP FastCGI upstream port")
@@ -44,7 +45,7 @@ def render_nginx_config(
 
     if php_upstream_port is None:
         php_location = (
-            "        location ~* \\.(?:php[0-9]?|phtml|phar|phps)(?:/|$) {\n"
+            "        location ~* \\.(?:php[0-9]?|phtml|phar|phps)(?:[^a-z0-9]|$) {\n"
             "            return 404;\n"
             "        }\n"
         )
@@ -52,12 +53,27 @@ def render_nginx_config(
         php_location = (
             "        location ~* \\.php$ {\n"
             "            try_files $uri =404;\n"
-            "            include fastcgi_params;\n"
+            f"            include {_quoted_path(config_dir / 'fastcgi_params')};\n"
             "            fastcgi_param SCRIPT_FILENAME $document_root$fastcgi_script_name;\n"
             "            fastcgi_param HTTP_PROXY \"\";\n"
             f"            fastcgi_pass 127.0.0.1:{php_upstream_port};\n"
             "        }\n"
-            "        location ~* \\.(?:php[0-9]|phtml|phar|phps)(?:/|$) { return 404; }\n"
+            "        location ~* \\.(?:php[0-9]?|phtml|phar|phps)(?:[^a-z0-9]|$) { return 404; }\n"
+        )
+
+    diagnostic_location = ""
+    if diagnostic is not None:
+        import re
+        token, script = diagnostic
+        if not re.fullmatch(r"[a-f0-9]{32}", token) or php_upstream_port is None:
+            raise ValueError("Invalid runtime diagnostic")
+        diagnostic_location = (
+            f"        location = /__local_server_{token}.php {{\n"
+            f"            include {_quoted_path(config_dir / 'fastcgi_params')};\n"
+            f"            fastcgi_param SCRIPT_FILENAME {_quoted_path(script)};\n"
+            "            fastcgi_param HTTP_PROXY \"\";\n"
+            f"            fastcgi_pass 127.0.0.1:{php_upstream_port};\n"
+            "        }\n"
         )
 
     return (
@@ -68,7 +84,12 @@ def render_nginx_config(
         f"error_log {errors} info;\n"
         "events { worker_connections 256; }\n"
         "http {\n"
-        "    include mime.types;\n"
+        f"    include {_quoted_path(config_dir / 'mime.types')};\n"
+        f"    client_body_temp_path {_quoted_path(config_dir / 'client_temp')};\n"
+        f"    proxy_temp_path {_quoted_path(config_dir / 'proxy_temp')};\n"
+        f"    fastcgi_temp_path {_quoted_path(config_dir / 'fastcgi_temp')};\n"
+        f"    uwsgi_temp_path {_quoted_path(config_dir / 'uwsgi_temp')};\n"
+        f"    scgi_temp_path {_quoted_path(config_dir / 'scgi_temp')};\n"
         "    default_type application/octet-stream;\n"
         f"    access_log {accesses};\n"
         "    server_tokens off;\n"
@@ -79,7 +100,7 @@ def render_nginx_config(
         "        index index.php index.html index.htm;\n"
         "        location / { try_files $uri $uri/ =404; }\n"
         "        location ~ /\\.(?!well-known) { deny all; }\n"
-        f"{php_location}"
+        f"{diagnostic_location}{php_location}"
         "    }\n"
         "}\n"
     )

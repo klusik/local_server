@@ -112,3 +112,31 @@ application acquisition, clean-Windows dependency failures, movement between
 drives/USB filesystems, signature checking and runtime/module loading remain
 unexecuted. No macOS or ARM64 archive is approved. Static pins require review
 before release; the catalog is not a continuing security-update service.
+
+## MSVC app-local review — 2026-10-21
+
+Follow-up research checked Microsoft's current
+[redistribution documentation](https://learn.microsoft.com/en-us/cpp/windows/redistributing-visual-cpp-files?view=msvc-170),
+[VS2022 distributable list](https://learn.microsoft.com/en-us/visualstudio/releases/2022/redistribution)
+and [app-local walkthrough](https://learn.microsoft.com/en-us/cpp/windows/walkthrough-deploying-a-visual-cpp-application-to-an-application-local-folder?view=msvc-170).
+They document local deployment beside executables, with redistribution limited to
+licensed Visual Studio users under the relevant product terms. The VS2022 list
+covers its `VC/redist` tree and excludes debug runtime folders. A downloadable EXE
+alone does not establish this project's distribution rights.
+
+The candidate scope for PHP is release MSVC v14 **x64**, including
+`vcruntime140.dll`, `vcruntime140_1.dll`, `msvcp140.dll`, at least the catalog's
+14.44.35211.0 policy floor. This identifies review targets, not an approved concrete
+DLL set/version. Reviewed x86 Nginx does not require that x64 bundle.
+
+No project-specific Visual Studio license entitlement or distributable ZIP with
+stable origin, exact DLL versions/hashes and preserved license notices was verified.
+Therefore `runtime_bundles` stays empty. No guessed URL/hash, system DLL copy,
+third-party repack or redistributable installer was substituted. Approval still
+needs documented entitlement/terms, reviewed immutable archive bytes, per-DLL
+integrity/architecture review and clean-Windows loader validation. End users must
+not need an SDK or manual DLL selection.
+
+The preceding pending-validation section describes the original acquisition work.
+Subsequent unit and actual Nginx/PHP acquisition/runtime/relocation checks are
+recorded in [RUNTIME.md](RUNTIME.md); they used a pre-existing host VC++ runtime.

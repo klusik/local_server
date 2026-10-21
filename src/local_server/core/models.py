@@ -23,6 +23,8 @@ class ProjectProfile:
     php_version: str | None = None
     http_port: int = 8080
     mysql_enabled: bool = False
+    nginx_package: str | None = None
+    php_package: str | None = None
 
     def validate(self) -> None:
         """Reject invalid profiles before any disk or process operation."""
@@ -53,6 +55,18 @@ class ProjectProfile:
             raise ValueError("HTTP port must be between 1024 and 65535")
         if not isinstance(self.mysql_enabled, bool):
             raise ValueError("mysql_enabled must be a boolean")
+        for component, key in (("nginx", self.nginx_package), ("php", self.php_package)):
+            if key is not None:
+                if not isinstance(key, str) or len(key.split("/")) != 4:
+                    raise ValueError("Package selection must be an exact package identity")
+                parts = key.split("/")
+                if parts[0] != component or any(
+                    not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._+-]{0,79}", part)
+                    or part.endswith(".") for part in parts
+                ):
+                    raise ValueError("Invalid package selection")
+        if self.php_package and self.php_version != self.php_package.split("/")[1]:
+            raise ValueError("PHP version must match the selected package")
 
     @classmethod
     def create(
@@ -64,6 +78,8 @@ class ProjectProfile:
         php_version: str | None = None,
         http_port: int = 8080,
         mysql_enabled: bool = False,
+        nginx_package: str | None = None,
+        php_package: str | None = None,
     ) -> ProjectProfile:
         """Create a new project profile with a stable UUID."""
         result = cls(
@@ -74,6 +90,8 @@ class ProjectProfile:
             php_version=php_version,
             http_port=http_port,
             mysql_enabled=mysql_enabled,
+            nginx_package=nginx_package,
+            php_package=php_package,
         )
         result.validate()
         return result
@@ -92,6 +110,8 @@ class ProjectProfile:
                 php_version=data.get("php_version"),
                 http_port=data.get("http_port", 8080),
                 mysql_enabled=data.get("mysql_enabled", False),
+                nginx_package=data.get("nginx_package"),
+                php_package=data.get("php_package"),
             )
         except KeyError as exc:
             raise ValueError(f"Missing project field: {exc.args[0]}") from exc

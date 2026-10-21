@@ -15,7 +15,7 @@ GitHub issues, Project board and release milestones will be created later.
 - [x] Headless unit tests and multiplatform GitHub Actions.
 - [x] Security, architecture, development and compatibility documentation.
 - [x] Explicit portable runtime archive downloads (static acquisition review).
-- [ ] Runtime startup remains unavailable.
+- [x] Explicit Windows x64 Nginx/PHP Start/Stop/Restart (host VC++ still required).
 
 ## Phase 1: Runtime availability and packages
 
@@ -42,19 +42,21 @@ GitHub issues, Project board and release milestones will be created later.
 
 ## Phase 2: Nginx runtime
 
-- [ ] Bind foreground Nginx instances to 127.0.0.1 only.
-- [ ] Generate valid prefix, mime.types, log and pid configurations.
-- [ ] Validate generated config using Nginx `-t` before starting/reloading.
-- [ ] Add start/stop/restart to the UI and surface actual health checks.
-- [ ] Report already occupied ports without killing unrelated processes.
-- [ ] Recover/clean up stale processes after interrupted sessions.
+- [x] Bind foreground Nginx instances to 127.0.0.1 only.
+- [x] Generate valid prefix, mime.types, log, pid and private temp configurations.
+- [x] Validate generated config using Nginx `-t` before starting (reload pending).
+- [x] Add start/stop/restart to the UI and surface actual initial health checks.
+- [x] Report already occupied ports without killing unrelated processes.
+- [x] Windows atomic kill-on-close jobs and cross-instance usage/project locks.
 
 ## Phase 3: Side-by-side PHP versions
 
-- [ ] Windows: approved PHP ZIP binaries and FastCGI `php-cgi.exe` lifecycle.
+- [x] Windows: approved PHP ZIP binaries and FastCGI `php-cgi.exe` lifecycle.
 - [ ] macOS: approved relocatable PHP builds and `php-fpm` lifecycle.
-- [ ] Isolate each project's PHP ini, extensions, sockets/ports and logs.
-- [ ] Keep multiple PHP versions running for multiple projects simultaneously.
+- [x] Isolate each project's PHP ini, ports, sessions, temporary files and logs.
+- [ ] PHP extension selection/management.
+- [x] Independent exact PHP selections and simultaneous project workers; real smoke
+      used two projects with PHP 8.4.26 (cross-version combinations remain unverified).
 - [ ] Implement transactional live version switching with probe and rollback.
 - [ ] Add PHP version diagnostics, extension management and config UI.
 - [ ] Test compatibility with Apache and Nginx adapters separately.

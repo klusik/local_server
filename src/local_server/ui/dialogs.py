@@ -9,6 +9,7 @@ from pathlib import Path
 from tkinter import filedialog, messagebox, ttk
 
 from local_server.core.models import ProjectProfile
+from local_server.components.catalog import PackageSpec
 from local_server.services.background import BackgroundIO
 from .theme import BACKGROUND, ToggleSwitch, icon_button
 
@@ -19,6 +20,7 @@ class ProjectDialog(tk.Toplevel):
     def __init__(
         self, parent: tk.Misc, existing: ProjectProfile | None = None,
         *, suggested_port: int = 8080,
+        local_packages: tuple[PackageSpec, ...] = (),
     ) -> None:
         super().__init__(parent)
         self.configure(background=BACKGROUND)
@@ -47,6 +49,8 @@ class ProjectDialog(tk.Toplevel):
         self.mysql_var = tk.BooleanVar(
             value=existing.mysql_enabled if existing else False
         )
+        self.nginx_package_var = tk.StringVar(value=existing.nginx_package or "" if existing else "")
+        self.php_package_var = tk.StringVar(value=existing.php_package or "" if existing else "")
 
         content = ttk.Frame(self, padding=24)
         content.grid(row=0, column=0, sticky="nsew")
@@ -89,12 +93,22 @@ class ProjectDialog(tk.Toplevel):
         ).grid(row=5, column=1, sticky="w", pady=(6, 0))
         ttk.Label(
             content,
-            text="PHP is a desired version, not an installed runtime yet.",
+            text="Download packages in Components, then select exact versions below.",
             style="Muted.TLabel",
         ).grid(row=6, column=0, columnspan=3, sticky="w", pady=(12, 0))
 
+        for row, component, variable in ((7, "nginx", self.nginx_package_var), (8, "php", self.php_package_var)):
+            ttk.Label(content, text=f"Local {component.title()}").grid(row=row, column=0, sticky="w", pady=5)
+            choices = ["", *(p.key for p in local_packages if p.component == component)]
+            if variable.get() not in choices:
+                choices.append(variable.get())  # preserve an unavailable selection after relocation
+            picker = ttk.Combobox(content, textvariable=variable, values=choices, state="readonly", width=57)
+            picker.grid(row=row, column=1, columnspan=2, sticky="ew", pady=5)
+            if component == "php":
+                picker.bind("<<ComboboxSelected>>", lambda _event: self.php_var.set(
+                    self.php_package_var.get().split("/")[1] if self.php_package_var.get() else ""))
         buttons = ttk.Frame(content)
-        buttons.grid(row=7, column=0, columnspan=3, sticky="e", pady=(18, 0))
+        buttons.grid(row=9, column=0, columnspan=3, sticky="e", pady=(18, 0))
         ttk.Button(buttons, text="Cancel", command=self._close).pack(
             side="right", padx=(8, 0)
         )
@@ -124,7 +138,9 @@ class ProjectDialog(tk.Toplevel):
             return
         values = dict(name=self.name_var.get().strip(), document_root=self.root_var.get().strip(),
                       server=self.server_var.get(), php_version=self.php_var.get().strip() or None,
-                      port=self.port_var.get().strip(), mysql_enabled=self.mysql_var.get())
+                      port=self.port_var.get().strip(), mysql_enabled=self.mysql_var.get(),
+                      nginx_package=self.nginx_package_var.get() or None,
+                      php_package=self.php_package_var.get() or None)
         def validate() -> ProjectProfile:
             port = int(values["port"])
             root = Path(values["document_root"]).expanduser().resolve()
@@ -137,6 +153,8 @@ class ProjectDialog(tk.Toplevel):
                 "php_version": values["php_version"],
                 "http_port": port,
                 "mysql_enabled": values["mysql_enabled"],
+                "nginx_package": values["nginx_package"],
+                "php_package": values["php_package"],
             }
             if self.existing is None:
                 candidate = ProjectProfile.create(**kwargs)

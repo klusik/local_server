@@ -31,11 +31,16 @@ the destination. External roots and explicit state overrides may need reassignme
 Windows archives do not become macOS binaries when copied.
 
 Vendor templates are retained, including Apache's default absolute ServerRoot.
-No vendor config is activated. Future adapters must render configs using current
-paths on every start. Generated previews are not authoritative stored config.
+Nginx uses generated configuration with current paths on every start, including
+separate temp directories required by its Windows build. Vendor Apache config is
+not activated. Generated previews are not authoritative stored config.
 Database format compatibility and migration are outside this feature.
 
 [Artifact evidence and licenses](PACKAGE_REVIEW.md). Local Server ships no binaries.
 Retain all notices and comply with the relevant licenses before redistributing a
-folder containing downloaded packages. UI, end-to-end acquisition and real runtime
-checks have not been run for this change.
+folder containing downloaded packages. Nginx 1.30.6 + PHP 8.4.26 have passed actual
+Windows x64 acquisition/start/restart/relocation/failure smoke tests on a host with
+VC++ already installed. Other catalog combinations and clean Windows remain
+unverified; see [runtime evidence](RUNTIME.md). No PHP extensions are enabled by the
+generated ini; extension management and application-specific framework setup remain
+future work. macOS/ARM64 runtime startup is rejected explicitly.

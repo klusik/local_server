@@ -20,7 +20,7 @@ from local_server.core.platform import PlatformTarget
 
 from .archive import safe_extract
 from .catalog import PackageSpec
-from .locking import package_lock
+from .locking import package_lock, rename_directory
 from .prerequisites import prerequisite_issues
 from .runtime_bundle import RuntimeBundle
 from .app_local import prepare_runtime, deploy_runtime
@@ -168,7 +168,7 @@ class ComponentInstaller:
                 os.fsync(stream.fileno())
             check()
             # The extracted staging directory and target are on the same filesystem.
-            os.rename(staging, target)
+            rename_directory(Path(staging), target)
             staging = None
             progress("local", 1, 1)
             return target

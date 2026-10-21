@@ -3,11 +3,24 @@
 from __future__ import annotations
 
 import os
+import time
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Iterator
 
 from local_server.core.paths import reject_links
+
+
+def rename_directory(source: Path, target: Path) -> None:
+    """Retry transient Windows sharing/access failures without replacing a target."""
+    for attempt in range(6):
+        try:
+            os.rename(source, target)
+            return
+        except PermissionError:
+            if os.name != "nt" or target.exists() or attempt == 5:
+                raise
+            time.sleep(0.05 * (attempt + 1))
 
 
 @contextmanager

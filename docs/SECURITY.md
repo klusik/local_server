@@ -45,15 +45,13 @@ Do not expose these development servers to the public internet.
 - Source provenance and detached signature validation where supported.
 - Trusted binary/package signing review on each supported OS.
 - Archive/path fuzzing and adversarial filesystem race testing.
-- Project-specific FastCGI configuration and lifecycle; never expose FPM or
-  CGI workers on a non-loopback interface.
-- Explicit PHP-CGI security parameters and version-specific testing.
+- Equivalent FastCGI lifecycle and dependency validation for future macOS support;
+  Windows PHP-CGI configuration/lifecycle is implemented and loopback-only.
+- Broader PHP-version/extension security testing beyond the verified 8.4.26 stack.
 - Run MySQL with private data directory and strong generated credentials,
   never shared default root credentials.
 - Store database secrets in Windows Credential Manager or macOS Keychain,
   not in project JSON or plain-text logs.
-- Detect/reap orphaned children after crashes and failed start sequences.
-- Reserve ports during startup or validate atomically to reduce check/use race.
 - Safe HTTPS certificate handling, enabled only with explicit user consent.
 - Full-stack integration tests and runtime update vulnerability monitoring.
 
@@ -68,8 +66,9 @@ The static catalog's review evidence is in [PACKAGE_REVIEW.md](PACKAGE_REVIEW.md
 PHP and Apache SHA-256 values match publisher metadata; Nginx/MySQL pins were
 measured from official HTTPS archives (MySQL also matched the vendor's MD5 listing).
 Detached signatures were not verified. TLS plus measured SHA-256 bootstrap pins
-do not independently prove a publisher's signing identity. No signature validation
-or runtime health is claimed. Only explicit user download actions contact a server.
+do not independently prove a publisher's signing identity. Signature validation
+is not claimed. Explicit Nginx/PHP startup has separate runtime health probes;
+only explicit user download actions contact an upstream download server.
 
 VC++ prerequisites are read from registry/version metadata and DLL presence; no
 registry changes or DLL/package execution occur. Missing prerequisites block
@@ -80,8 +79,23 @@ installation or a fallback directory. File locks and atomic rename depend on the
 destination filesystem; unmount/power failure and copying an active folder can
 still corrupt data. Close the app before copying. A user able to modify the app
 folder can also modify packages/receipts; this is not a tamper-proof sandbox.
-Future adapters must regenerate configs after moving and integrate runtime usage
-leases with cross-process ownership before enabling execution.
+The Windows Nginx/PHP controller regenerates configs, holds cross-instance usage
+leases, and creates child trees atomically in kill-on-close jobs. Shutdown waits
+for owned descendants before releasing reservations. Stale ownership files contain
+no PID authority. No process is adopted or killed merely because of a name/port.
+
+Startup binds exclusive loopback sockets for HTTP and FastCGI. They must be released
+before `php-cgi`, Windows `nginx -t` and Nginx can bind; those executables do not
+support inheriting the reserved sockets. Process polling plus random-token,
+exact-version FastCGI/HTTP probes reject a failed handoff. This reduces the race
+but does not provide an atomic socket transfer or resist a malicious local user.
+
+PHP requests use FastCGI with `try_files`, explicit `SCRIPT_FILENAME`, empty
+`HTTP_PROXY`, `cgi.fix_pathinfo=0`, and a private ini with additional ini scanning
+disabled. Script-like suffixes and PATH_INFO fallbacks cannot become static source
+responses; missing FastCGI yields an upstream error. Diagnostic scripts are created
+only under private generated state, never in a user's project. State/packages may
+not overlap a document root. These controls are not an application sandbox.
 
 ## Reporting security issues
 

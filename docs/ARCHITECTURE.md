@@ -36,9 +36,12 @@ src/local_server/
 ├── runtime/
 │   ├── nginx.py        Foreground localhost-only config renderer
 │   ├── processes.py    Tracked local child process supervisor
-│   ├── ports.py        Non-reserving port diagnostic
+│   ├── ports.py        Loopback diagnostics and startup socket reservations
+│   ├── controller.py   Nginx/PHP transactions and Tk-independent monitoring worker
+│   ├── ownership.py    OS-released project/package usage locks
+│   ├── windows_job.py  Atomic Windows child/job containment, kill on owner exit
 │   ├── apache.py       Explicit future adapter boundary
-│   ├── php.py          Explicit future adapter boundary
+│   ├── php.py          Private PHP ini/environment and FastCGI diagnostics
 │   └── mysql.py        Explicit future adapter boundary
 └── ui/
     ├── main_window.py  Project overview and component status
@@ -181,8 +184,8 @@ DMG, arbitrary installer scripts or source compilation.
 
 The bundled catalog has seven statically inspected Windows x64 acquisition
 records; Nginx is explicitly x86/WoW64. No macOS/ARM64 downloads are offered.
-See [review evidence](PACKAGE_REVIEW.md). Network-free tests were extended for
-the new behavior but have not been run for this feature.
+See [review evidence](PACKAGE_REVIEW.md) and [runtime verification](RUNTIME.md).
+Network-free tests and a real Windows Nginx/PHP smoke test have now been run.
 
 Components uses a Tk-independent worker and throttled immutable events; Tk polls
 a queue on the main thread. Downloading, verifying and extracting are separate
@@ -195,23 +198,39 @@ Inventory is discovered from committed receipts, including older catalog version
 Removal detaches one package into staging before deletion and refuses links and
 junctions. Project roots and `data/` are outside the removal boundary. Guards
 conservatively block components requested by saved profiles; PHP matches exact
-versions or the requested minor line. Reference-counted in-process usage leases
-prepare the runtime boundary. Future runtimes must integrate leases and durable
-cross-instance ownership/orphan recovery before startup is enabled. No runtime
-is currently started by the application, and unmanaged external processes cannot
-be reliably identified by these guards.
+versions or the requested minor line for legacy profiles. New optional
+`nginx_package` and `php_package` fields store exact portable package identities,
+including OS, host architecture and variant. PHP's version must agree with its
+selected identity. Schema 1/2 profiles without selections still load; startup asks
+for explicit local choices. No automatic version fallback is performed.
+
+Reference-counted usage leases hold OS byte locks in `packages/.usage/` and are
+acquired under the package mutation lock. Removal checks all live instance locks;
+dead lock files can be reclaimed without trusting recorded PIDs. A per-project lock
+under `packages/.runtime-projects/` prevents duplicate startup even with different
+state overrides. Unmanaged external use is outside this ownership boundary.
 
 ## Process ownership and crash recovery
 
 `ProcessSupervisor` tracks direct foreground children started from the private
 components directory, refuses shell execution, and writes stdout/stderr logs to
-the application home. This generic primitive is implemented, but no orchestration
-of a full Apache/Nginx/PHP/MySQL stack is wired up yet.
+the application home. `RuntimeController` composes selected local Nginx and PHP NTS
+packages on Windows x64. Each process is atomically created inside a non-inheritable
+Windows Job Object using `PROC_THREAD_ATTRIBUTE_JOB_LIST`; job closure terminates
+the owned tree, including Nginx workers. Startup fails if containment is unavailable.
 
-Nginx configuration rendering uses `daemon off;` to permit later direct
-process tracking. PHP-FPM and MySQL need their own correct foreground modes.
-After a GUI crash or OS reboot, orphan detection and recovery will be required;
-these safeguards are not implemented and no background daemon is installed.
+Nginx uses `daemon off;`; PHP uses `php-cgi.exe -c <private ini> -b 127.0.0.1:<port>`.
+No FPM or mod_php is involved. A worker serializes lifecycle operations and monitors
+process exit and HTTP listener presence. Initial running state requires a direct
+FastCGI probe and an HTTP/PHP probe with a random token and exact PHP version/SAPI.
+No periodic PHP requests compete with long-running user requests. Rollback stops
+newly owned processes before releasing package/project locks. Close cancels pending
+startup and waits for cleanup off Tk's event loop. A GUI crash releases kernel job
+handles and usage locks; no PID-based recovery kill or global process scan is used.
+
+Configs, includes, logs, sessions and diagnostic scripts live outside document
+roots and are regenerated from current paths on each start. See [RUNTIME.md](RUNTIME.md)
+for the port handoff interval, security boundary and actual validation evidence.
 
 ## Explicit non-goals of the initial scaffold
 
@@ -221,6 +240,6 @@ these safeguards are not implemented and no background daemon is installed.
   register/unregister operations in the OS.
 - No automatic first-run database creation, default root credentials, or unsafe
   `--initialize-insecure` database initialisation.
-- No claim of running PHP, PHP version hot-switching, or a fully operational stack.
+- No PHP version hot-switching, Apache/MySQL lifecycle or clean-Windows guarantee.
 
 See [Roadmap](ROADMAP.md) for the proposed execution sequence.

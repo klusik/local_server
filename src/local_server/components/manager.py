@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import json
-import os
 import queue
 import threading
 import time
@@ -17,10 +16,11 @@ from local_server.core.store import ProjectStore
 
 from .catalog import PackageSpec
 from .installer import ComponentInstaller, DownloadCancelled, RECEIPT, remove_tree
-from .locking import package_lock
+from .locking import package_lock, rename_directory
 from .prerequisites import prerequisite_issues
 from .runtime_bundle import RuntimeBundle
 from .app_local import verify_runtime_files
+from local_server.runtime.ownership import OwnershipLock
 
 
 @dataclass(frozen=True)
@@ -45,12 +45,21 @@ class PackageManager:
         self.store = store
         self._leases: dict[str, int] = {}
         self._lease_lock = threading.RLock()
+        self._usage_locks: dict[str, OwnershipLock] = {}
+
+    def _usage_dir(self, package: PackageSpec) -> Path:
+        directory = self.installer.paths.components / ".usage" / package.key
+        reject_links(self.installer.paths.components, directory)
+        return directory
 
     def acquire_use(self, package: PackageSpec) -> None:
         """Reserve a package before a future runtime starts using its files."""
-        with self._lease_lock:
+        with self._lease_lock, package_lock(self.installer.paths.components):
             if package not in self.inventory():
                 raise RuntimeError("Package is not locally available")
+            if package.key not in self._leases:
+                filename = self._usage_dir(package) / (uuid.uuid4().hex + ".lock")
+                self._usage_locks[package.key] = OwnershipLock(filename)
             self._leases[package.key] = self._leases.get(package.key, 0) + 1
 
     def release_use(self, package: PackageSpec) -> None:
@@ -59,6 +68,9 @@ class PackageManager:
             count = self._leases.get(package.key, 0)
             if count <= 1:
                 self._leases.pop(package.key, None)
+                lock = self._usage_locks.pop(package.key, None)
+                if lock:
+                    lock.close()
             else:
                 self._leases[package.key] = count - 1
 
@@ -99,17 +111,29 @@ class PackageManager:
             target = self.installer.installed_path(package)
             if package.key in self._leases:
                 raise RuntimeError("This version is in use. Stop its runtime before removing it.")
-            # Until exact runtime selections are implemented, refuse removal of
-            # any server requested by a profile, and matching PHP minor versions.
+            for filename in self._usage_dir(package).glob("*.lock"):
+                reject_links(root, filename)
+                try:
+                    lock = OwnershipLock(filename)
+                except OSError as exc:
+                    raise RuntimeError("This version is in use by another Local Server instance.") from exc
+                else:
+                    lock.close()
+                    filename.unlink()  # stale, OS-released lease; never a PID kill
+            # Exact selections protect only their chosen identity; legacy
+            # profiles retain their conservative server/PHP-minor guards.
             for project in self.store.load():
                 document_root = Path(project.document_root).resolve()
                 if document_root.is_relative_to(target.resolve()):
                     raise RuntimeError(f"Package contains the document root of project '{project.name}'. Reassign it before removing the package.")
                 selected = project.php_version
-                if (package.component == project.server or
-                    package.component == "mysql" and project.mysql_enabled or
-                    package.component == "php" and selected and
-                    (package.version == selected or package.version.startswith(selected + "."))):
+                server_requested = (package.key == project.nginx_package if project.nginx_package and project.server == "nginx"
+                                    else package.component == project.server)
+                php_requested = (package.key == project.php_package if project.php_package else
+                                 package.component == "php" and selected and
+                                 (package.version == selected or package.version.startswith(selected + ".")))
+                if (server_requested or php_requested or
+                    package.component == "mysql" and project.mysql_enabled):
                     raise RuntimeError(f"Package is requested by project '{project.name}'. Change the profile before removing it.")
             if package not in self.inventory():
                 raise ValueError("No matching local package receipt")
@@ -117,7 +141,7 @@ class PackageManager:
             # recovery, never mistaken for a complete package.
             detached = self.installer.paths.downloads / (".remove-" + uuid.uuid4().hex)
             reject_links(root, detached)
-            os.rename(target, detached)
+            rename_directory(target, detached)
             remove_tree(root, detached)
 
 

@@ -64,7 +64,23 @@ Ubuntu is a headless *test runner*, not a promised web-runtime target.
 The current tests cover profile validation, atomic persistence, CRUD,
 catalog/platform validation, ZIP and tar.gz safety, verified installer behavior,
 rendered Nginx configs, process ownership and loopback port diagnostics.
-Full HTTP/PHP/MySQL integration tests must be added with real vetted binaries.
+`test_runtime.py` adds transaction, rollback, port, lease, path and source-routing
+checks. `test_windows_job.py` uses disposable Python children to verify atomic job
+containment, descendant termination after an owner crash and lock recovery.
+Windows-only tests skip on other platforms.
+
+For the explicit real-binary smoke test on Windows x64 (PowerShell):
+
+```powershell
+$env:PYTHONPATH = 'src'
+python tools/smoke_nginx_php.py --acquire
+```
+
+`--acquire` permits downloading only the two selected SHA-256-pinned Nginx/PHP
+catalog entries. Omit it to use already available packages. All test projects and
+relocated copies live in disposable `.test-tmp/` directories. No Apache or MySQL
+binary is run. The host's VC++ runtime must already satisfy the package checks.
+If sandbox temp permissions fail, set `TMP` and `TEMP` to a writable test directory.
 
 ## Developer state isolation
 
@@ -76,10 +92,10 @@ ignored; never add archives, binaries or review scratch files to Git.
 
 The main window edits profiles and previews Nginx config. Components manages
 reviewed portable archives with progress, cancellation/retry and guarded removal.
-It does not start servers, initialize MySQL or switch running PHP versions.
-See [artifact review](PACKAGE_REVIEW.md) for what was inspected and what remains
-untested. The tests added on `feature/portable-packages` were intentionally not run
-during implementation at the user's request; CI has not been triggered by a push.
+It now starts explicitly selected Nginx/PHP packages on Windows x64. It does not
+initialize MySQL or switch running PHP versions without a stop/start. See
+[runtime verification](RUNTIME.md) for completed and pending checks. Initial tests
+ran locally; GitHub Actions runs the cross-platform matrix on pushes and PRs.
 
 ## Design constraints
 

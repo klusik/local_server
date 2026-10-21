@@ -28,6 +28,8 @@ class ProjectService:
         php_version: str | None = None,
         http_port: int = 8080,
         mysql_enabled: bool = False,
+        nginx_package: str | None = None,
+        php_package: str | None = None,
     ) -> ProjectProfile:
         """Create a project pointing at an existing local directory."""
         root = Path(document_root).expanduser().resolve()
@@ -40,6 +42,8 @@ class ProjectService:
             php_version=php_version,
             http_port=http_port,
             mysql_enabled=mysql_enabled,
+            nginx_package=nginx_package,
+            php_package=php_package,
         )
         projects = self.store.load()
         self.store.save([*projects, candidate])
@@ -61,7 +65,7 @@ class ProjectService:
     def select_php_version(self, project_id: str, version: str | None) -> None:
         """Save a project's desired PHP version, without restarting processes."""
         project = self.get_project(project_id)
-        self.update_project(replace(project, php_version=version))
+        self.update_project(replace(project, php_version=version, php_package=None))
 
     def get_project(self, project_id: str) -> ProjectProfile:
         """Return a profile by stable identifier."""

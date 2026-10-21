@@ -24,7 +24,8 @@ Thumbs.db
 # Local state, logs, downloaded binaries
 /packages/
 .local-server/
-runtime/
+/runtime/
+.test-tmp/
 downloads/
 components-installed/
 logs/

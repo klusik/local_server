@@ -14,7 +14,7 @@ MUTED = "#A6B4C1"
 ACCENT = "#76ACB8"
 
 
-def _rounded_image(root: tk.Tk, color: str, radius: int = 6) -> tk.PhotoImage:
+def _rounded_image(root: tk.Tk, color: str, radius: int = 6, *, gloss: float = 0.0) -> tk.PhotoImage:
     """Build a subtly rounded nine-slice surface with antialiased corners."""
     size = 24
     image = tk.PhotoImage(master=root, width=size, height=size)
@@ -23,20 +23,27 @@ def _rounded_image(root: tk.Tk, color: str, radius: int = 6) -> tk.PhotoImage:
     rows = []
     for y in range(size):
         row = []
+        # Keep the stretched centre quiet; the fixed top/bottom slices carry
+        # a soft reflected highlight and a shallow lower shadow.
+        highlight = gloss * max(0.0, 1.0 - abs(y - 2) / 6)
+        shadow = gloss * 0.45 * max(0.0, (y - (size - 6)) / 5)
+        surface = tuple(round(channel + (255 - channel) * highlight - channel * shadow)
+                        for channel in foreground)
         for x in range(size):
             cx = min(max(x + 0.5, radius), size - radius)
             cy = min(max(y + 0.5, radius), size - radius)
             coverage = max(0.0, min(1.0, radius + 0.5 - math.hypot(x + 0.5 - cx, y + 0.5 - cy)))
-            rgb = tuple(round(b + (f - b) * coverage) for f, b in zip(foreground, background))
+            rgb = tuple(round(b + (f - b) * coverage) for f, b in zip(surface, background))
             row.append("#%02x%02x%02x" % rgb)
         rows.append("{" + " ".join(row) + "}")
     image.put(" ".join(rows))
     return image
 
 
-def _surface_element(style: ttk.Style, root: tk.Tk, name: str, colors: tuple[str, str, str]) -> None:
+def _surface_element(style: ttk.Style, root: tk.Tk, name: str, colors: tuple[str, str, str], *, gloss: float = 0.0) -> None:
     """Register rounded state artwork, retaining images for the Tk lifetime."""
-    images = [_rounded_image(root, color) for color in colors]
+    images = [_rounded_image(root, color, gloss=gloss * (0.35 if index == 2 else 1.0))
+              for index, color in enumerate(colors)]
     root._surface_images.extend(images)
     style.element_create(name, "image", images[0], ("pressed", images[2]), ("active", images[1]), border=7, sticky="nsew")
 
@@ -58,11 +65,13 @@ def apply_theme(root: tk.Tk) -> None:
     style.configure("TLabel", background=BACKGROUND, foreground=INK)
     style.configure("Muted.TLabel", foreground=MUTED)
     style.configure("Card.TLabel", background=SURFACE)
-    style.configure("TButton", background=RAISED, foreground=INK, padding=(12, 8), relief="flat", borderwidth=0)
+    style.configure("TButton", background=RAISED, foreground=INK, padding=(12, 3), relief="flat", borderwidth=0,
+                    focuscolor="#9CBBC5")
+    style.configure("Icon.TButton", padding=(6, 3))
     style.map("TButton", foreground=[("disabled", "#788795")])
     style.configure("Primary.TButton", background=ACCENT, foreground=BACKGROUND)
-    _surface_element(style, root, "Soft.button", (RAISED, "#394956", "#344350"))
-    _surface_element(style, root, "Soft.primary", (ACCENT, "#86B6C0", "#679BA7"))
+    _surface_element(style, root, "Soft.button", (RAISED, "#394956", "#293744"), gloss=0.13)
+    _surface_element(style, root, "Soft.primary", (ACCENT, "#86B6C0", "#679BA7"), gloss=0.15)
     for button_style, element in (("TButton", "Soft.button"), ("Primary.TButton", "Soft.primary")):
         style.layout(button_style, [(element, {"sticky": "nsew", "children": [
             ("Button.focus", {"sticky": "nsew", "children": [
@@ -72,7 +81,7 @@ def apply_theme(root: tk.Tk) -> None:
     style.configure("TCombobox", fieldbackground=RAISED, background=RAISED, foreground=INK, arrowcolor=MUTED, padding=7)
     style.map("TCombobox", fieldbackground=[("readonly", RAISED)], foreground=[("readonly", INK)], selectbackground=[("readonly", RAISED)], selectforeground=[("readonly", INK)])
     _surface_element(style, root, "Soft.field", (RAISED, RAISED, RAISED))
-    _surface_element(style, root, "Soft.card", (SURFACE, SURFACE, SURFACE))
+    _surface_element(style, root, "Soft.card", (SURFACE, SURFACE, SURFACE), gloss=0.035)
     style.layout("Card.TFrame", [("Soft.card", {"sticky": "nsew"})])
     style.layout("TEntry", [("Soft.field", {"sticky": "nsew", "children": [
         ("Entry.padding", {"sticky": "nsew", "children": [
@@ -82,17 +91,18 @@ def apply_theme(root: tk.Tk) -> None:
         ("Combobox.padding", {"sticky": "nsew", "children": [
             ("Combobox.textarea", {"sticky": "nsew"})]})]})])
     style.configure("TNotebook", background=BACKGROUND, borderwidth=0, tabmargins=(0, 0, 0, 12))
-    style.configure("TNotebook.Tab", background=BACKGROUND, foreground=MUTED, padding=(18, 10), borderwidth=0)
+    style.configure("TNotebook.Tab", background=BACKGROUND, foreground=MUTED, padding=(18, 6), borderwidth=0)
     # The clam tab element changes its inset when selected. Replace it with
     # fixed artwork and padding so selection never changes label geometry.
-    tab_images = [_rounded_image(root, color) for color in (BACKGROUND, "#354551", "#2D3945")]
+    tab_images = [_rounded_image(root, color, gloss=0.06 if index else 0)
+                  for index, color in enumerate((BACKGROUND, "#354551", "#2D3945"))]
     root._surface_images.extend(tab_images)
     style.element_create("Soft.tab", "image", tab_images[0], ("selected", tab_images[1]), ("active", tab_images[2]), border=7, sticky="nsew")
     style.layout("TNotebook.Tab", [("Soft.tab", {"sticky": "nsew", "children": [
         ("Notebook.padding", {"sticky": "nsew", "children": [
             ("Notebook.focus", {"sticky": "nsew", "children": [
                 ("Notebook.label", {"sticky": "nsew"})]})]})]})])
-    style.map("TNotebook.Tab", foreground=[("selected", "#B8CED5")], padding=[("selected", (18, 10)), ("!selected", (18, 10))], expand=[("selected", (0, 0, 0, 0)), ("!selected", (0, 0, 0, 0))])
+    style.map("TNotebook.Tab", foreground=[("selected", "#B8CED5")], padding=[("selected", (18, 6)), ("!selected", (18, 6))], expand=[("selected", (0, 0, 0, 0)), ("!selected", (0, 0, 0, 0))])
     style.layout("TNotebook", [("Notebook.client", {"sticky": "nsew"})])
     style.configure("Treeview", background=SURFACE, fieldbackground=SURFACE, foreground=INK, rowheight=38, borderwidth=0, relief="flat")
     style.configure("Treeview.Heading", background=BACKGROUND, foreground=MUTED, padding=(10, 10), relief="flat", borderwidth=0)
@@ -140,7 +150,8 @@ class Tooltip:
 
 def icon_button(parent: tk.Misc, glyph: str, label: str, **kwargs: object) -> ttk.Button:
     """Create a compact icon action with discoverable keyboard help."""
-    button = ttk.Button(parent, text=glyph, width=3, **kwargs)
+    kwargs.setdefault("style", "Icon.TButton")
+    button = ttk.Button(parent, text=glyph, width=2, **kwargs)
     Tooltip(button, label)
     return button
 

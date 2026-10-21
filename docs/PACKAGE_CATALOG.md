@@ -39,6 +39,8 @@ dependency; OS checks still apply.
 The list is currently empty. DLL redistribution approval is not inferred from the
 existence of a system redistributable EXE. A maintainer must review a legally
 distributable DLL ZIP and its notices before enabling a reference.
+The [follow-up MSVC review](PACKAGE_REVIEW.md#msvc-app-local-review--2026-10-21)
+documents the specific unresolved source/license evidence; no placeholder was added.
 
 ## Review and refresh policy
 

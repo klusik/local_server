@@ -52,5 +52,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     except tk.TclError as exc:
         print(f"Unable to launch Tkinter: {exc}", file=sys.stderr)
         return 1
-    window.mainloop()
+    try:
+        window.mainloop()
+    finally:
+        window.finish_shutdown()
     return 0

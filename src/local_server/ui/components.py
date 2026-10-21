@@ -62,7 +62,7 @@ class ComponentsPage(ttk.Frame):
         ttk.Label(heading, text="Portable packages", font=("TkDefaultFont", 14, "bold")).pack(side="left")
         self.refresh_button = icon_button(heading, "↻", "Refresh packages and dependency checks", command=self.refresh)
         self.refresh_button.pack(side="right")
-        ttk.Label(self, text="Archives only · server startup comes later", style="Muted.TLabel").pack(anchor="w", pady=(6, 16))
+        ttk.Label(self, text="Download versions, then select them in your project", style="Muted.TLabel").pack(anchor="w", pady=(6, 16))
         pickers = ttk.Frame(self)
         pickers.pack(fill="x", pady=(0, 14))
         self.component_picker = ttk.Combobox(pickers, textvariable=self.component, values=("nginx", "apache", "php", "mysql"), state="readonly", width=14)
@@ -239,7 +239,7 @@ class ComponentsPage(ttk.Frame):
             self.issues = dict(event.issues)
             self.states = {k: v for k, v in self.states.items() if v == "error"}
             self._loaded = True
-            self.status.set(f"{len(self.local)} local package(s) · runtime startup is not implemented" if self.catalog else "No reviewed downloads for this OS/architecture. Local archives can be removed.")
+            self.status.set(f"{len(self.local)} local package(s)" if self.catalog else "No reviewed downloads for this OS/architecture. Local archives can be removed.")
             self._versions()
         elif event.state in {"error", "cancelled"}:
             self.status.set("Package operation failed. Open details." if event.state == "error" else event.message)
