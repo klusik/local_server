@@ -1,0 +1,19 @@
+name: Develop integrate
+
+# GitHub requires a workflow_dispatch definition on the default branch once.
+# Select the reviewed feature branch in 'Use workflow from' for real integration.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  select-feature-branch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 1
+    steps:
+      - name: Require selection of a branch containing the integration implementation
+        run: |
+          echo '::error::This is only the default-branch registration. Select the reviewed feature branch in Use workflow from, then run Develop integrate again.'
+          exit 1
