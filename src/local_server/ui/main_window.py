@@ -16,6 +16,7 @@ from local_server.core.paths import AppPaths
 from local_server.core.models import ProjectProfile
 from local_server.runtime.nginx import render_nginx_config
 from local_server.runtime.controller import RuntimeController, RuntimeWorker, RuntimeEvent
+from local_server.runtime.mysql import DatabaseInventory
 from local_server.services.projects import ProjectService
 from local_server.services.background import BackgroundIO
 
@@ -190,6 +191,8 @@ class MainWindow(tk.Tk):
         self.open_button.pack(side="left", padx=(0, 8))
         self.logs_button = icon_button(actions, "≡", "Runtime logs and error details", command=self._logs, state="disabled")
         self.logs_button.pack(side="left")
+        self.database_button = icon_button(actions, "DB", "Project databases and users", command=lambda: self._runtime_action("databases"), state="disabled")
+        self.database_button.pack(side="left", padx=(6, 0))
 
     def _create_components_tab(self, parent: ttk.Frame) -> None:
         """Expose honest component-installation status and the future boundary."""
@@ -250,10 +253,19 @@ class MainWindow(tk.Tk):
             changed = False
             while not self._runtime_worker.events.empty():
                 event = self._runtime_worker.events.get_nowait()
+                if event.state in {"connection", "password", "connection-error", "databases"}:
+                    if not self._closing:
+                        if event.state == "connection-error":
+                            messagebox.showerror("MySQL connection", event.message, parent=self)
+                        elif event.connection:
+                            self._show_database(event.project_id, event.connection)
+                        elif event.database_inventory is not None:
+                            self._show_database_manager(event.project_id, event.database_inventory)
+                    continue
                 self._runtime_states[event.project_id] = event
                 changed = True
                 if event.message:
-                    self.status_var.set(event.message + " · open runtime logs for details")
+                    self.status_var.set(event.message + (" · open runtime logs for details" if event.state == "error" else ""))
             if changed:
                 self._render_projects()
         while True:
@@ -294,7 +306,8 @@ class MainWindow(tk.Tk):
                     project.server,
                     project.php_version or "None",
                     project.http_port,
-                    "Yes" if project.mysql_enabled else "No",
+                    (self._runtime_states.get(project.id, RuntimeEvent(project.id, "stopped")).database_state.title()
+                     if project.mysql_enabled else "Off"),
                     self._runtime_states.get(project.id, RuntimeEvent(project.id, "stopped")).state.title(),
                 ),
             )
@@ -327,13 +340,14 @@ class MainWindow(tk.Tk):
         project = next((p for p in self._projects if p.id == self._selected_id()), None)
         runtime_state = self._runtime_states.get(project.id, RuntimeEvent(project.id, "stopped")).state if project else "stopped"
         runtime_event = self._runtime_states.get(project.id) if project else None
-        active = runtime_state in {"starting", "stopping", "running"} or bool(runtime_event and runtime_event.owned)
+        active = runtime_state in {"initializing", "starting", "stopping", "running"} or bool(runtime_event and runtime_event.owned)
         self.edit_button.configure(state="disabled" if active else state)
         self.remove_button.configure(state="disabled" if active else state)
         self.start_button.configure(state="normal" if project and project.server == "nginx" and project.nginx_package and project.php_package and self._runtime_worker and not active and not self._closing else "disabled")
         self.stop_button.configure(state="normal" if project and runtime_state in {"running", "error"} and not self._closing else "disabled")
         self.restart_button.configure(state="normal" if runtime_state == "running" and not self._closing else "disabled")
         self.open_button.configure(state="normal" if runtime_state == "running" and not self._closing else "disabled")
+        self.database_button.configure(state="normal" if project and project.mysql_enabled and runtime_state == "running" and not self._closing else "disabled")
         if project is None:
             self.detail_var.set("Select a project to see its settings.")
             self.relink_button.pack_forget()
@@ -345,7 +359,8 @@ class MainWindow(tk.Tk):
             f"PHP {project.php_version or 'not selected'}  ·  "
             f"MySQL {'requested' if project.mysql_enabled else 'not requested'}\n"
             f"Runtime: {runtime_state}  ·  Nginx: {project.nginx_package or 'select a local package'}\n"
-            f"PHP: {project.php_package or 'select a local package'}"
+            f"PHP: {project.php_package or 'select a local package'}\n"
+            + (f"MySQL: {project.mysql_package or 'select a local package'} · 127.0.0.1:{project.mysql_port}" if project.mysql_enabled else "")
         )
         if project.id in self._missing_roots and not active:
             self.detail_var.set(self.detail_var.get() + "\nDocument root is unavailable. Choose its new location.")
@@ -394,6 +409,8 @@ class MainWindow(tk.Tk):
                 mysql_enabled=project.mysql_enabled,
                 nginx_package=project.nginx_package,
                 php_package=project.php_package,
+                mysql_package=project.mysql_package,
+                mysql_port=project.mysql_port,
             )
         self._submit_io(save, lambda _result: self.refresh())
 
@@ -431,11 +448,14 @@ class MainWindow(tk.Tk):
 
     def _is_active(self, project_id: str) -> bool:
         event = self._runtime_states.get(project_id)
-        return bool(event and (event.state in {"starting", "stopping", "running"} or event.owned))
+        return bool(event and (event.state in {"initializing", "starting", "stopping", "running"} or event.owned))
 
     def _runtime_action(self, action: str) -> None:
         project = next((p for p in self._projects if p.id == self._selected_id()), None)
         if project is None or not self._runtime_worker or self._closing or self._io.busy:
+            return
+        if action in {"connection", "password", "databases"}:
+            self._runtime_worker.submit(action, project)
             return
         self._runtime_states[project.id] = RuntimeEvent(project.id, "stopping" if action == "stop" else "starting")
         self._runtime_worker.submit(action, project)
@@ -453,7 +473,8 @@ class MainWindow(tk.Tk):
         event = self._runtime_states.get(project.id)
         def read() -> str:
             directory = self.paths.project_config_dir(project.id)
-            files = [*directory.glob("*.log"), *self.paths.logs.glob(f"*-{project.id}.log")]
+            files = [*directory.glob("*.log"), *directory.glob("mysql/*.log"),
+                     *self.paths.logs.glob(f"*-{project.id}.log")]
             sections = [event.details] if event and event.details else []
             for file in files:
                 with file.open("rb") as stream:
@@ -461,6 +482,78 @@ class MainWindow(tk.Tk):
                     sections.append(f"{file.name}\n" + stream.read(65536).decode("utf-8", errors="replace"))
             return "\n\n".join(sections) or "No runtime logs yet."
         self._submit_io(read, lambda text: self._show_preview(project, text, logs=True))
+
+    def _show_database(self, project_id: str, fields: dict[str, str | int]) -> None:
+        """Show project credentials delivered by the worker after an explicit action."""
+        project = next((p for p in self._projects if p.id == project_id), None)
+        if project is None:
+            return
+        popup = tk.Toplevel(self)
+        popup.title(f"MySQL: {project.name}")
+        popup.configure(background=BACKGROUND)
+        content = ttk.Frame(popup, padding=20)
+        content.pack(fill="both", expand=True)
+        for row, (name, value) in enumerate(fields.items()):
+            ttk.Label(content, text=name.title()).grid(row=row, column=0, sticky="w", padx=(0, 14), pady=5)
+            entry = ttk.Entry(content, width=58)
+            entry.insert(0, str(value))
+            entry.configure(state="readonly")
+            entry.grid(row=row, column=1, sticky="ew", pady=5)
+        if "password" not in fields:
+            def reveal() -> None:
+                if self._runtime_worker and not self._closing:
+                    self._runtime_worker.submit("password", project)
+                popup.destroy()
+            ttk.Button(content, text="Show password", command=reveal).grid(row=len(fields), column=1, sticky="e", pady=(12, 0))
+        popup.bind("<Escape>", lambda _event: popup.destroy())
+
+    def _show_database_manager(self, project_id: str, inventory: DatabaseInventory) -> None:
+        """Offer non-destructive database/account creation in one project instance."""
+        project = next((p for p in self._projects if p.id == project_id), None)
+        if project is None:
+            return
+        previous = getattr(self, "_database_popup", None)
+        if previous is not None and previous.winfo_exists():
+            previous.destroy()
+        popup = self._database_popup = tk.Toplevel(self)
+        popup.title(f"Databases: {project.name}")
+        popup.configure(background=BACKGROUND)
+        content = ttk.Frame(popup, padding=20)
+        content.pack(fill="both", expand=True)
+        ttk.Label(content, text="Databases and users · " + project.name).grid(row=0, column=0, columnspan=3, sticky="w", pady=(0, 14))
+        ttk.Label(content, text="Database").grid(row=1, column=0, sticky="w", padx=(0, 12))
+        database = ttk.Combobox(content, values=inventory["databases"], width=40)
+        database.grid(row=1, column=1, sticky="ew", pady=5)
+        if inventory["databases"]:
+            database.set(inventory["databases"][0])
+        def submit(action: str, values: dict[str, str]) -> None:
+            if self._runtime_worker and not self._closing:
+                self._runtime_worker.submit(action, project, values)
+        ttk.Button(content, text="Create database", command=lambda: submit("create-database", {"database": database.get().strip()})).grid(row=1, column=2, padx=(10, 0))
+        ttk.Label(content, text="New user").grid(row=2, column=0, sticky="w", padx=(0, 12))
+        user = ttk.Entry(content, width=40)
+        user.grid(row=2, column=1, sticky="ew", pady=5)
+        ttk.Button(content, text="Create user", command=lambda: submit("create-user", {
+            "database": database.get().strip(), "user": user.get().strip()})).grid(row=2, column=2, padx=(10, 0))
+        ttk.Label(content, text="Each new user can access only the selected database.", style="Muted.TLabel").grid(row=3, column=0, columnspan=3, sticky="w", pady=(8, 12))
+        accounts = ttk.Treeview(content, columns=("user", "database", "state"), show="headings", height=6)
+        for name, label, width in (("user", "User", 180), ("database", "Database", 220), ("state", "State", 90)):
+            accounts.heading(name, text=label)
+            accounts.column(name, width=width)
+        for record in inventory["accounts"]:
+            accounts.insert("", "end", values=(record["user"], record["database"], record["state"]))
+        accounts.grid(row=4, column=0, columnspan=3, sticky="ew")
+        buttons = ttk.Frame(content)
+        buttons.grid(row=5, column=0, columnspan=3, sticky="e", pady=(14, 0))
+        ttk.Button(buttons, text="Default connection", command=lambda: submit("connection", {})).pack(side="left", padx=(0, 8))
+        def reveal() -> None:
+            chosen = accounts.selection()
+            if chosen:
+                values = accounts.item(chosen[0], "values")
+                submit("account-password", {"user": values[0]})
+        ttk.Button(buttons, text="Show selected credentials", command=reveal).pack(side="left", padx=(0, 8))
+        ttk.Button(buttons, text="Refresh", command=lambda: submit("databases", {})).pack(side="left")
+        popup.bind("<Escape>", lambda _event: popup.destroy())
 
     def _preview(self) -> None:
         """Display a rendered Nginx template without launching any service."""

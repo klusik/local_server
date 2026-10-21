@@ -2,11 +2,12 @@
 
 Cross-platform desktop manager for isolated local web development environments.
 
-> **Status: Windows x64 Nginx + PHP runtime implemented and smoke-tested.**
+> **Status: Windows x64 Nginx + PHP + optional MySQL implemented and smoke-tested.**
 > Components provides explicit downloads, SHA-256 verification, safe extraction,
 > cancellation/retry and removal. The reviewed catalog targets Windows x64.
 > Projects can start, stop and restart explicitly selected local Nginx/PHP packages.
-> Apache, MySQL and live PHP switching remain unimplemented. Clean Windows without
+> Each project has its own MySQL instance/data/accounts and a database/user manager.
+> Apache and live PHP switching remain unimplemented. Clean Windows without
 > a system VC++ runtime remains unsupported until an app-local DLL bundle is approved.
 
 ## Goals
@@ -39,6 +40,13 @@ Open website and Logs become available in the project actions. Stop before editi
 the running profile. Nothing starts automatically when opening Local Server.
 See [runtime behavior and verification](docs/RUNTIME.md).
 
+For MySQL, download the reviewed Community ZIP, enable MySQL in Edit project,
+select its exact local package/port and Start. Running requires authenticated SQL
+and an HTTP/PHP SQL query. The **DB** action creates project databases and users,
+with each account limited to one database. Connection passwords are revealed only
+on request; configure your application yourself. No website files are changed.
+See [MySQL storage, isolation and portability](docs/MYSQL.md).
+
 See [Architecture](docs/ARCHITECTURE.md), [Development](docs/DEVELOPMENT.md), [Security](docs/SECURITY.md), and [Roadmap](docs/ROADMAP.md).
 
 ## Portable storage
@@ -54,7 +62,7 @@ LocalServer/
   .local-server/projects.json        profile state
   .local-server/generated/           generated config, recreated for current paths
   .local-server/logs/
-  .local-server/data/                 reserved for future database data
+  .local-server/data/<project-uuid>/   private MySQL data and identity (no passwords)
 ```
 
 State priority: `--data-dir` > absolute `LOCAL_SERVER_HOME` >
@@ -93,6 +101,6 @@ database data. Local availability does **not** certify a working runtime.
 See [reviewed artifacts and hashes](docs/PACKAGE_REVIEW.md),
 [catalog policy](docs/PACKAGE_CATALOG.md) and [compatibility](docs/COMPATIBILITY.md).
 The repository ships metadata, not third-party binaries. Signature verification,
-clean-machine runtime smoke tests, Apache/MySQL startup and frozen app packaging
+clean-machine runtime smoke tests, Apache startup and frozen app packaging
 remain future work. Existing per-user state is not silently imported; migration
 is described in [Architecture](docs/ARCHITECTURE.md).

@@ -71,14 +71,15 @@ GitHub issues, Project board and release milestones will be created later.
 
 ## Phase 5: MySQL
 
-- [x] Pin MySQL Community 8.4.13 Windows x64 ZIP for acquisition only.
-- [ ] Create an isolated database directory on selected private volume.
-- [ ] Securely initialize credentials, store secrets in OS keychain/credential
+- [x] Pin MySQL Community 8.4.13 Windows x64 ZIP.
+- [x] Create an isolated per-project database directory in private state.
+- [x] Securely initialize Windows credentials, store secrets in OS credential
       manager, and bind to local-only socket or loopback.
-- [ ] Implement start/stop/restart and health checks.
+- [x] Implement Windows start/stop/restart, authenticated SQL and PHP/HTTP checks.
 - [ ] Plan backups, recovery, major-version migrations and compatible data
       formats, without sharing writable data directories across versions.
-- [ ] Add GUI for optional database attachment per project.
+- [x] Add exact MySQL package/port selection and per-project database/user creation UI.
+- [ ] Credential transfer/recovery UI for another Windows user/computer.
 
 ## Phase 6: Development experience
 

@@ -91,6 +91,11 @@ This does not grant blanket permission to redistribute a proprietary combined
 product. Only extraction is implemented: no Configurator, initialization,
 credentials, startup or service registration.
 
+That paragraph records the original acquisition review. The optional Windows
+MySQL runtime now securely initializes per-project data and accounts; it still
+does not run Configurator or register services. Actual 8.4.13 runtime verification
+and remaining limits are documented in [RUNTIME.md](RUNTIME.md) and [MYSQL.md](MYSQL.md).
+
 ## Dependency deployment boundary
 
 Microsoft's [redistribution documentation](https://learn.microsoft.com/en-us/cpp/windows/redistributing-visual-cpp-files)

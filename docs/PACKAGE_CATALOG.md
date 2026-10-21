@@ -17,6 +17,11 @@ be selected through this acquisition workflow. Future Apache/Nginx adapters will
 use separate PHP CGI/FastCGI workers. Extensions must match version, architecture,
 NTS and compiler ABI; extension management is not implemented.
 
+MySQL-enabled runtime projects now load the selected PHP package's mysqli and
+PDO MySQL modules and verify actual loading/SQL through HTTP. General extension
+selection remains unimplemented. The catalog remains unchanged; acquisition
+notes describe the installer's boundary, not current project runtime support.
+
 Only exact host matches are offered. No macOS or ARM64 downloads are approved.
 Receipts keep older/off-platform local packages discoverable and removable.
 

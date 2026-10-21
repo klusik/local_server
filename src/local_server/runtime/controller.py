@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import http.client
+import json
 import queue
 import socket
 import shutil
@@ -26,6 +27,7 @@ from .ownership import OwnershipLock
 from .php import PhpFastCgiAdapter, probe_fastcgi, render_php_ini
 from .ports import PortReservation
 from .processes import ProcessSupervisor
+from .mysql import MysqlAdapter, DatabaseInventory
 
 
 @dataclass(frozen=True)
@@ -37,6 +39,9 @@ class RuntimeEvent:
     message: str = ""
     details: str = ""
     owned: bool = False
+    database_state: str = "stopped"
+    connection: dict[str, str | int] | None = field(default=None, repr=False)
+    database_inventory: DatabaseInventory | None = field(default=None, repr=False)
 
 
 @dataclass
@@ -51,6 +56,7 @@ class _Run:
     expected: bytes = b""
     healthy: bool = False
     failed_probes: int = 0
+    mysql: MysqlAdapter | None = None
 
 
 class RuntimeController:
@@ -62,6 +68,29 @@ class RuntimeController:
         self.supervisor = supervisor or ProcessSupervisor(paths)
         self.runs: dict[str, _Run] = {}
         self.cancelled = threading.Event()
+        self.progress: Callable[[RuntimeEvent], None] = lambda _event: None
+
+    def _mysql_selection(self, project: ProjectProfile) -> PackageSpec | None:
+        if not project.mysql_enabled:
+            return None
+        package = next((p for p in self.manager.inventory() if p.key == project.mysql_package), None)
+        if package is None:
+            raise ValueError("Select an exact available local MySQL package in Edit project")
+        package.validate()
+        if (package.component != "mysql" or (package.os, package.arch) != (self.target.os, self.target.arch)
+                or package.binary_arch != "x86_64" or package.variant != "community"
+                or package.entrypoint != "bin/mysqld.exe"):
+            raise ValueError("Select a Windows x64 MySQL Community package matching this host")
+        issues = prerequisite_issues(package, app_local=bool(package.runtime_bundle))
+        if issues:
+            raise ValueError(" ".join(issues))
+        directory = self.manager.installer.installed_path(package)
+        for filename in ("mysql.exe", "mysqladmin.exe"):
+            path = directory / "bin" / filename
+            reject_links(self.paths.components, path)
+            if not path.is_file():
+                raise ValueError("Selected MySQL package is missing its official client binaries")
+        return package
 
     def _selection(self, project: ProjectProfile) -> tuple[PackageSpec, PackageSpec]:
         if self.target != PlatformTarget("windows", "x86_64"):
@@ -103,6 +132,7 @@ class RuntimeController:
             raise RuntimeError("Project is already started or awaiting cleanup")
         self._validate_roots(project)
         nginx, php = self._selection(project)
+        mysql = self._mysql_selection(project)
         self.paths.ensure()
         lock_path = self.paths.components / ".runtime-projects" / (project.id + ".lock")
         reject_links(self.paths.components, lock_path)
@@ -113,7 +143,7 @@ class RuntimeController:
         run = _Run(project, ownership)
         self.runs[project.id] = run
         try:
-            for package in (nginx, php):
+            for package in (nginx, php, *((mysql,) if mysql else ())):
                 self.manager.acquire_use(package)
                 run.packages.append(package)
             try:
@@ -133,6 +163,20 @@ class RuntimeController:
                 reject_links(self.paths.root, config / name)
             nginx_dir = self.manager.installer.installed_path(nginx)
             php_dir = self.manager.installer.installed_path(php)
+            if mysql:
+                for extension in ("php_mysqli.dll", "php_pdo_mysql.dll"):
+                    path = php_dir / "ext" / extension
+                    reject_links(self.paths.components, path)
+                    if not path.is_file():
+                        raise ValueError("Selected PHP package lacks mysqli/PDO MySQL extensions")
+                run.mysql = MysqlAdapter(self.paths, project, mysql,
+                    self.manager.installer.installed_path(mysql), self.supervisor, self.cancelled,
+                    progress=lambda state: self.progress(RuntimeEvent(project.id, state,
+                        "MySQL initialization" if state == "initializing" else "Starting MySQL",
+                        owned=True, database_state=state)))
+                run.mysql.start()
+                self.progress(RuntimeEvent(project.id, "starting", "MySQL SQL verified; starting PHP/Nginx",
+                                           owned=True, database_state="verified"))
             for name in ("mime.types", "fastcgi_params"):
                 source = nginx_dir / "conf" / name
                 reject_links(self.paths.components, source)
@@ -142,9 +186,26 @@ class RuntimeController:
             script = Path(run.diagnostic.name) / "probe.php"
             run.token = uuid.uuid4().hex
             run.expected = f"{run.token}|{php.version}|cgi-fcgi".encode("ascii")
-            script.write_text("<?php echo '" + run.token + "|' . PHP_VERSION . '|' . PHP_SAPI;", encoding="utf-8")
+            probe = "<?php echo '" + run.token + "|' . PHP_VERSION . '|' . PHP_SAPI;"
+            if run.mysql:
+                # Password arrives only in a private loopback POST, never in a script,
+                # URL, argv, Nginx access log or the user's website configuration.
+                probe = """<?php
+if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+  try {
+    if (!extension_loaded('mysqli') || !extension_loaded('pdo_mysql')) { throw new Exception(); }
+    $c = json_decode(file_get_contents('php://input'), true, 8, JSON_THROW_ON_ERROR);
+    mysqli_report(MYSQLI_REPORT_ERROR | MYSQLI_REPORT_STRICT);
+    $db = new mysqli('127.0.0.1', $c['user'], $c['password'], $c['database'], $c['port']);
+    $row = $db->query('SELECT 1, @@server_uuid')->fetch_row();
+    if ($row[0] != 1 || $row[1] !== $c['server_uuid']) { throw new Exception(); }
+    $db->close();
+  } catch (Throwable $e) { http_response_code(503); exit('Database probe failed'); }
+}
+""" + "echo '" + run.token + "|' . PHP_VERSION . '|' . PHP_SAPI;"
+            script.write_text(probe, encoding="utf-8")
             for filename, content in (
-                ("php.ini", render_php_ini(config, php_dir)),
+                ("php.ini", render_php_ini(config, php_dir, mysql=bool(mysql))),
                 ("nginx.conf", render_nginx_config(project, config, php_upstream_port=fcgi.port,
                                                    diagnostic=(run.token, script))),
             ):
@@ -188,6 +249,8 @@ class RuntimeController:
             run.reservations.clear()
 
     def _check_processes(self, run: _Run) -> None:
+        if run.mysql and (run.mysql.process is None or not run.mysql.process.running):
+            raise RuntimeError("Owned MySQL process exited. See MySQL logs.")
         if any(self.supervisor.status(name) != "running" for name in run.names):
             raise RuntimeError("An owned runtime process exited. See logs.")
 
@@ -209,7 +272,13 @@ class RuntimeController:
     def _probe_http(run: _Run) -> None:
         connection = http.client.HTTPConnection("127.0.0.1", run.project.http_port, timeout=0.5)
         try:
-            connection.request("GET", f"/__local_server_{run.token}.php")
+            if run.mysql:
+                fields = run.mysql.connection(reveal=True)
+                fields["server_uuid"] = run.mysql.identity["server_uuid"]
+                connection.request("POST", f"/__local_server_{run.token}.php",
+                                   json.dumps(fields), {"Content-Type": "application/json"})
+            else:
+                connection.request("GET", f"/__local_server_{run.token}.php")
             response = connection.getresponse()
             if response.status != 200 or response.read(65537) != run.expected:
                 raise OSError("HTTP/PHP diagnostic output/version mismatch")
@@ -225,6 +294,9 @@ class RuntimeController:
         for name in reversed(run.names.copy()):
             self.supervisor.stop(name)
             run.names.remove(name)
+        if run.mysql:
+            run.mysql.stop()
+            run.mysql = None
         for reservation in run.reservations:
             reservation.close()
         if run.diagnostic:
@@ -254,6 +326,8 @@ class RuntimeController:
                     # user request. Do not enqueue diagnostic PHP or kill valid
                     # requests merely because they take longer than a probe.
                     self._probe_listener(run)
+                    if run.mysql:
+                        run.mysql.probe()
                     run.failed_probes = 0
                 except (OSError, http.client.HTTPException):
                     run.failed_probes += 1
@@ -266,7 +340,8 @@ class RuntimeController:
                     self.stop(project_id)
                 except Exception:
                     details += "\nCleanup failed; reservations retained:\n" + traceback.format_exc()
-                events.append(RuntimeEvent(project_id, "error", str(exc), details, project_id in self.runs))
+                events.append(RuntimeEvent(project_id, "error", str(exc), details, project_id in self.runs,
+                                           database_state="error" if run.project.mysql_enabled else "disabled"))
         return events
 
     @staticmethod
@@ -285,23 +360,32 @@ class RuntimeController:
         if errors:
             raise RuntimeError("; ".join(errors))
 
+    def connection(self, project_id: str, *, reveal: bool = False) -> dict[str, str | int]:
+        """Read credentials only from a verified run on the runtime worker."""
+        run = self.runs.get(project_id)
+        if run is None or not run.healthy or run.mysql is None:
+            raise RuntimeError("Start and verify this project's MySQL stack first")
+        return run.mysql.connection(reveal=reveal)
+
 
 class RuntimeWorker:
     """A single lifecycle/monitor worker; it never calls Tk or browser APIs."""
 
     def __init__(self, controller: RuntimeController) -> None:
         self.controller = controller
-        self.commands: queue.Queue[tuple[str, ProjectProfile | None]] = queue.Queue()
+        self.commands: queue.Queue[tuple[str, ProjectProfile, dict[str, str]]] = queue.Queue()
         self.events: queue.SimpleQueue[RuntimeEvent] = queue.SimpleQueue()
+        self.controller.progress = self.events.put
         self.closing = threading.Event()
         self.thread = threading.Thread(target=self._run, name="project-runtimes", daemon=False)
         self.thread.start()
 
-    def submit(self, action: str, project: ProjectProfile) -> None:
+    def submit(self, action: str, project: ProjectProfile, arguments: dict[str, str] | None = None) -> None:
         """Queue an explicit lifecycle action, without doing IO on the caller."""
-        if self.closing.is_set() or action not in {"start", "stop", "restart"}:
+        if self.closing.is_set() or action not in {"start", "stop", "restart", "connection", "password",
+                                                  "databases", "create-database", "create-user", "account-password"}:
             raise RuntimeError("Runtime worker is closing or action is invalid")
-        self.commands.put((action, project))
+        self.commands.put((action, project, dict(arguments or {})))
 
     def close(self) -> None:
         """Request bounded startup completion followed by owned-process cleanup."""
@@ -312,12 +396,33 @@ class RuntimeWorker:
         next_monitor = time.monotonic() + 1
         while not self.closing.is_set():
             try:
-                action, project = self.commands.get(timeout=0.2)
+                action, project, arguments = self.commands.get(timeout=0.2)
             except queue.Empty:
                 pass
             else:
                 assert project is not None
-                self.events.put(RuntimeEvent(project.id, "stopping" if action == "stop" else "starting"))
+                if action in {"connection", "password", "databases", "create-database", "create-user", "account-password"}:
+                    try:
+                        fields = self.controller.connection(project.id, reveal=action == "password")
+                        run = self.controller.runs[project.id]
+                        assert run.mysql is not None
+                        if action == "account-password":
+                            fields = run.mysql.account_connection(arguments.get("user", ""))
+                        if action in {"databases", "create-database", "create-user"}:
+                            if action == "create-database":
+                                inventory = run.mysql.create_database(arguments.get("database", ""))
+                            elif action == "create-user":
+                                inventory = run.mysql.create_user(arguments.get("database", ""), arguments.get("user", ""))
+                            else:
+                                inventory = run.mysql.databases()
+                            self.events.put(RuntimeEvent(project.id, "databases", database_inventory=inventory))
+                        else:
+                            self.events.put(RuntimeEvent(project.id, "password" if action == "account-password" else action, connection=fields))
+                    except Exception as exc:
+                        self.events.put(RuntimeEvent(project.id, "connection-error", str(exc)))
+                    continue
+                self.events.put(RuntimeEvent(project.id, "stopping" if action == "stop" else "starting",
+                    database_state=("stopping" if action == "stop" else "starting") if project.mysql_enabled else "disabled"))
                 try:
                     if action == "stop":
                         self.controller.stop(project.id)
@@ -327,9 +432,11 @@ class RuntimeWorker:
                         self.controller.start(project)
                 except Exception as exc:
                     self.events.put(RuntimeEvent(project.id, "error", str(exc).splitlines()[0], traceback.format_exc(),
-                                                 project.id in self.controller.runs))
+                                                 project.id in self.controller.runs,
+                                                 database_state="error" if project.mysql_enabled else "disabled"))
                 else:
-                    self.events.put(RuntimeEvent(project.id, "stopped" if action == "stop" else "running"))
+                    self.events.put(RuntimeEvent(project.id, "stopped" if action == "stop" else "running",
+                        database_state=("verified" if action != "stop" else "stopped") if project.mysql_enabled else "disabled"))
             if time.monotonic() >= next_monitor:
                 for event in self.controller.monitor():
                     self.events.put(event)

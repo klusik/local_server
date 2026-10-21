@@ -30,6 +30,8 @@ class ProjectService:
         mysql_enabled: bool = False,
         nginx_package: str | None = None,
         php_package: str | None = None,
+        mysql_package: str | None = None,
+        mysql_port: int = 3307,
     ) -> ProjectProfile:
         """Create a project pointing at an existing local directory."""
         root = Path(document_root).expanduser().resolve()
@@ -44,6 +46,8 @@ class ProjectService:
             mysql_enabled=mysql_enabled,
             nginx_package=nginx_package,
             php_package=php_package,
+            mysql_package=mysql_package,
+            mysql_port=mysql_port,
         )
         projects = self.store.load()
         self.store.save([*projects, candidate])

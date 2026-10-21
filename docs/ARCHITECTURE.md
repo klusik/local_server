@@ -42,7 +42,8 @@ src/local_server/
 │   ├── windows_job.py  Atomic Windows child/job containment, kill on owner exit
 │   ├── apache.py       Explicit future adapter boundary
 │   ├── php.py          Private PHP ini/environment and FastCGI diagnostics
-│   └── mysql.py        Explicit future adapter boundary
+│   ├── mysql.py        Per-project MySQL initialization, SQL, accounts and shutdown
+│   └── secrets.py      Windows Credential Manager and private directory ACLs
 └── ui/
     ├── main_window.py  Project overview and component status
     └── dialogs.py      Modal profile editor
@@ -82,8 +83,8 @@ records therefore still enforce the host VC++ runtime. Adding a reviewed bundle
 and package reference requires no end-user SDK, compilation or DLL selection.
 
 State defaults to `<application>/.local-server/`, containing `projects.json`,
-`generated/<project-uuid>/`, `logs/` and `data/` (reserved future database storage,
-not initialized). Priority: CLI `--data-dir` > absolute `LOCAL_SERVER_HOME` > portable
+`generated/<project-uuid>/`, `logs/` and `data/<project-uuid>/` (isolated MySQL
+datadir/identity). Priority: CLI `--data-dir` > absolute `LOCAL_SERVER_HOME` > portable
 default. An explicit state override does not move packages. An external override
 must be copied/reassigned separately when moving the application. Write probes
 fail with an actionable error; no system installation or per-user fallback.
@@ -238,8 +239,16 @@ for the port handoff interval, security boundary and actual validation evidence.
 - No unprompted installation of Apache, PHP, Nginx or MySQL.
 - No system-wide PATH changes, privileged ports, launch agents, services or
   register/unregister operations in the OS.
-- No automatic first-run database creation, default root credentials, or unsafe
+- No database creation before explicit MySQL-enabled project Start, default root credentials, or unsafe
   `--initialize-insecure` database initialisation.
-- No PHP version hot-switching, Apache/MySQL lifecycle or clean-Windows guarantee.
+- No PHP version hot-switching, Apache lifecycle or clean-Windows guarantee.
+
+Optional MySQL starts before PHP/Nginx, using a separate OS-released data lease
+in addition to the project/package leases. Authenticated official-client queries
+check the exact version, server UUID and database; HTTP/mysqli verifies the full
+stack. Its initial datadir is staged, securely initialized and bootstrapped before
+promotion. Credentials live in Windows Credential Manager. The worker also handles
+non-destructive database/user creation and explicit password reveal. See
+[MySQL architecture and limitations](MYSQL.md).
 
 See [Roadmap](ROADMAP.md) for the proposed execution sequence.

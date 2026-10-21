@@ -23,7 +23,7 @@ def _ini_path(path: Path) -> str:
     return '"' + value + '"'
 
 
-def render_php_ini(config_dir: Path, package_dir: Path) -> str:
+def render_php_ini(config_dir: Path, package_dir: Path, *, mysql: bool = False) -> str:
     """Isolate CGI settings, errors, sessions and temporary uploads."""
     return (
         "[PHP]\ncgi.force_redirect=0\ncgi.fix_pathinfo=0\nfastcgi.impersonate=0\n"
@@ -34,6 +34,7 @@ def render_php_ini(config_dir: Path, package_dir: Path) -> str:
         f"upload_tmp_dir={_ini_path(config_dir / 'php-temp')}\n"
         f"session.save_path={_ini_path(config_dir / 'sessions')}\n"
         "date.timezone=UTC\n"
+        + ("extension=mysqli\nextension=pdo_mysql\n" if mysql else "")
     )
 
 

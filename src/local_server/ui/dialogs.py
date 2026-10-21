@@ -51,6 +51,8 @@ class ProjectDialog(tk.Toplevel):
         )
         self.nginx_package_var = tk.StringVar(value=existing.nginx_package or "" if existing else "")
         self.php_package_var = tk.StringVar(value=existing.php_package or "" if existing else "")
+        self.mysql_package_var = tk.StringVar(value=existing.mysql_package or "" if existing else "")
+        self.mysql_port_var = tk.StringVar(value=str(existing.mysql_port) if existing else "3307")
 
         content = ttk.Frame(self, padding=24)
         content.grid(row=0, column=0, sticky="nsew")
@@ -89,7 +91,7 @@ class ProjectDialog(tk.Toplevel):
         server_picker.grid(row=4, column=1, sticky="w", pady=5)
 
         ToggleSwitch(
-            content, label="MySQL · planned", variable=self.mysql_var
+            content, label="MySQL", variable=self.mysql_var
         ).grid(row=5, column=1, sticky="w", pady=(6, 0))
         ttk.Label(
             content,
@@ -97,7 +99,8 @@ class ProjectDialog(tk.Toplevel):
             style="Muted.TLabel",
         ).grid(row=6, column=0, columnspan=3, sticky="w", pady=(12, 0))
 
-        for row, component, variable in ((7, "nginx", self.nginx_package_var), (8, "php", self.php_package_var)):
+        for row, component, variable in ((7, "nginx", self.nginx_package_var), (8, "php", self.php_package_var),
+                                         (9, "mysql", self.mysql_package_var)):
             ttk.Label(content, text=f"Local {component.title()}").grid(row=row, column=0, sticky="w", pady=5)
             choices = ["", *(p.key for p in local_packages if p.component == component)]
             if variable.get() not in choices:
@@ -107,8 +110,10 @@ class ProjectDialog(tk.Toplevel):
             if component == "php":
                 picker.bind("<<ComboboxSelected>>", lambda _event: self.php_var.set(
                     self.php_package_var.get().split("/")[1] if self.php_package_var.get() else ""))
+        ttk.Label(content, text="MySQL port").grid(row=10, column=0, sticky="w", pady=5)
+        ttk.Entry(content, textvariable=self.mysql_port_var, width=12).grid(row=10, column=1, sticky="w", pady=5)
         buttons = ttk.Frame(content)
-        buttons.grid(row=9, column=0, columnspan=3, sticky="e", pady=(18, 0))
+        buttons.grid(row=11, column=0, columnspan=3, sticky="e", pady=(18, 0))
         ttk.Button(buttons, text="Cancel", command=self._close).pack(
             side="right", padx=(8, 0)
         )
@@ -140,7 +145,9 @@ class ProjectDialog(tk.Toplevel):
                       server=self.server_var.get(), php_version=self.php_var.get().strip() or None,
                       port=self.port_var.get().strip(), mysql_enabled=self.mysql_var.get(),
                       nginx_package=self.nginx_package_var.get() or None,
-                      php_package=self.php_package_var.get() or None)
+                      php_package=self.php_package_var.get() or None,
+                      mysql_package=self.mysql_package_var.get() or None,
+                      mysql_port=self.mysql_port_var.get().strip())
         def validate() -> ProjectProfile:
             port = int(values["port"])
             root = Path(values["document_root"]).expanduser().resolve()
@@ -155,6 +162,8 @@ class ProjectDialog(tk.Toplevel):
                 "mysql_enabled": values["mysql_enabled"],
                 "nginx_package": values["nginx_package"],
                 "php_package": values["php_package"],
+                "mysql_package": values["mysql_package"],
+                "mysql_port": int(values["mysql_port"]),
             }
             if self.existing is None:
                 candidate = ProjectProfile.create(**kwargs)

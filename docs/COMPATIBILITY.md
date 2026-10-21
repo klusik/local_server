@@ -10,7 +10,7 @@ produce a frozen self-contained application.
 | Nginx | 1.31.7 mainline, 1.30.6 stable; upstream ZIP | x86 via WoW64 on x64; Windows beta |
 | Apache | 2.4.69-261002 VS18; Apache Lounge ZIP | Third-party ASF-source build; VC++ x64 >=14.51.36247.0; vendor config assumes `C:/Apache24` |
 | PHP | 8.5.11, 8.4.26, 8.3.35; official NTS x64 ZIP | CGI/FastCGI, no FPM or TS/mod_php; VC++ x64 >=14.44.35211.0 enforced conservatively |
-| MySQL | Community 8.4.13 LTS; Oracle ZIP | VC++ x64 >=14.44.35211.0 enforced conservatively; no database/accounts |
+| MySQL | Community 8.4.13 LTS; Oracle ZIP | VC++ x64 >=14.44.35211.0; per-project database/accounts and lifecycle tested with PHP 8.4.26/Nginx 1.30.6 |
 | macOS Intel / ARM64 | No downloads offered | Relocatable archive/dependency/signing review needed |
 | Windows ARM64 | No downloads offered | No implicit x64/x86 emulation assumption |
 
@@ -34,13 +34,15 @@ Vendor templates are retained, including Apache's default absolute ServerRoot.
 Nginx uses generated configuration with current paths on every start, including
 separate temp directories required by its Windows build. Vendor Apache config is
 not activated. Generated previews are not authoritative stored config.
-Database format compatibility and migration are outside this feature.
+MySQL requires the exact package that initialized its datadir; upgrades,
+downgrades and migrations are refused. Windows credentials stay bound to the
+original OS account/computer; see [MySQL portability](MYSQL.md).
 
 [Artifact evidence and licenses](PACKAGE_REVIEW.md). Local Server ships no binaries.
 Retain all notices and comply with the relevant licenses before redistributing a
 folder containing downloaded packages. Nginx 1.30.6 + PHP 8.4.26 have passed actual
 Windows x64 acquisition/start/restart/relocation/failure smoke tests on a host with
 VC++ already installed. Other catalog combinations and clean Windows remain
-unverified; see [runtime evidence](RUNTIME.md). No PHP extensions are enabled by the
-generated ini; extension management and application-specific framework setup remain
+unverified; see [runtime evidence](RUNTIME.md). MySQL-enabled projects load mysqli
+and PDO MySQL from their selected PHP package; general extension management and framework setup remain
 future work. macOS/ARM64 runtime startup is rejected explicitly.

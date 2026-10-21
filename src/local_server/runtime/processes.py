@@ -5,6 +5,7 @@ from __future__ import annotations
 import re
 import os
 import subprocess
+from contextlib import ExitStack
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Sequence, Mapping, TYPE_CHECKING
@@ -48,6 +49,8 @@ class ProcessSupervisor:
         cwd: Path,
         env: Mapping[str, str] | None = None,
         contain: bool = False,
+        private_log: Path | None = None,
+        private_input: Path | None = None,
     ) -> ManagedProcess:
         """Start one private executable with no shell or global service install."""
         if not _PROCESS_NAME.fullmatch(name):
@@ -71,8 +74,10 @@ class ProcessSupervisor:
             raise ValueError("Process working directory does not exist")
 
         self.paths.ensure()
-        log_file = self.paths.logs / f"{name}.log"
+        log_file = private_log if private_log is not None else self.paths.logs / f"{name}.log"
         reject_links(self.paths.root, log_file)
+        if private_input is not None:
+            reject_links(self.paths.root, private_input)
         arguments = [str(executable), *argv[1:]]
         job = None
         if contain:
@@ -81,16 +86,19 @@ class ProcessSupervisor:
             from .windows_job import WindowsJob
             job = WindowsJob()
         try:
-            with log_file.open("ab") as log_stream:
+            with ExitStack() as stack:
+                log_stream = stack.enter_context(log_file.open("ab"))
+                input_stream = stack.enter_context(private_input.open("rb")) if private_input else None
                 if job:
-                    handle = job.start(arguments, cwd=cwd, env=env, log_descriptor=log_stream.fileno())
+                    kwargs = {"input_descriptor": input_stream.fileno()} if input_stream else {}
+                    handle = job.start(arguments, cwd=cwd, env=env, log_descriptor=log_stream.fileno(), **kwargs)
                 else:
                     handle = subprocess.Popen(
                         arguments,
                         cwd=cwd,
                         stdout=log_stream,
                         stderr=subprocess.STDOUT,
-                        stdin=subprocess.DEVNULL,
+                        stdin=input_stream if input_stream else subprocess.DEVNULL,
                         shell=False,
                         close_fds=True,
                         env=dict(env) if env is not None else None,

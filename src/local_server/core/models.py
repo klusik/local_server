@@ -25,6 +25,8 @@ class ProjectProfile:
     mysql_enabled: bool = False
     nginx_package: str | None = None
     php_package: str | None = None
+    mysql_package: str | None = None
+    mysql_port: int = 3307
 
     def validate(self) -> None:
         """Reject invalid profiles before any disk or process operation."""
@@ -55,7 +57,13 @@ class ProjectProfile:
             raise ValueError("HTTP port must be between 1024 and 65535")
         if not isinstance(self.mysql_enabled, bool):
             raise ValueError("mysql_enabled must be a boolean")
-        for component, key in (("nginx", self.nginx_package), ("php", self.php_package)):
+        if (isinstance(self.mysql_port, bool) or not isinstance(self.mysql_port, int)
+                or not 1024 <= self.mysql_port <= 65535):
+            raise ValueError("MySQL port must be between 1024 and 65535")
+        if self.mysql_enabled and self.mysql_port == self.http_port:
+            raise ValueError("MySQL and HTTP ports must differ")
+        for component, key in (("nginx", self.nginx_package), ("php", self.php_package),
+                               ("mysql", self.mysql_package)):
             if key is not None:
                 if not isinstance(key, str) or len(key.split("/")) != 4:
                     raise ValueError("Package selection must be an exact package identity")
@@ -80,6 +88,8 @@ class ProjectProfile:
         mysql_enabled: bool = False,
         nginx_package: str | None = None,
         php_package: str | None = None,
+        mysql_package: str | None = None,
+        mysql_port: int = 3307,
     ) -> ProjectProfile:
         """Create a new project profile with a stable UUID."""
         result = cls(
@@ -92,6 +102,8 @@ class ProjectProfile:
             mysql_enabled=mysql_enabled,
             nginx_package=nginx_package,
             php_package=php_package,
+            mysql_package=mysql_package,
+            mysql_port=mysql_port,
         )
         result.validate()
         return result
@@ -112,6 +124,8 @@ class ProjectProfile:
                 mysql_enabled=data.get("mysql_enabled", False),
                 nginx_package=data.get("nginx_package"),
                 php_package=data.get("php_package"),
+                mysql_package=data.get("mysql_package"),
+                mysql_port=data.get("mysql_port", 3307),
             )
         except KeyError as exc:
             raise ValueError(f"Missing project field: {exc.args[0]}") from exc

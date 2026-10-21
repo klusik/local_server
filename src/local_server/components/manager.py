@@ -133,7 +133,8 @@ class PackageManager:
                                  package.component == "php" and selected and
                                  (package.version == selected or package.version.startswith(selected + ".")))
                 if (server_requested or php_requested or
-                    package.component == "mysql" and project.mysql_enabled):
+                    package.component == "mysql" and project.mysql_enabled and
+                    (not project.mysql_package or package.key == project.mysql_package)):
                     raise RuntimeError(f"Package is requested by project '{project.name}'. Change the profile before removing it.")
             if package not in self.inventory():
                 raise ValueError("No matching local package receipt")

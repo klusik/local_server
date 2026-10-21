@@ -131,7 +131,7 @@ class WindowsJob:
             raise error
 
     def start(self, argv: Sequence[str], *, cwd: Path, env: Mapping[str, str] | None,
-              log_descriptor: int) -> WindowsProcess:
+              log_descriptor: int, input_descriptor: int | None = None) -> WindowsProcess:
         """Create a child with JOB_LIST and only explicit standard handles inherited."""
         import msvcrt
         size = ctypes.c_size_t()
@@ -143,7 +143,7 @@ class WindowsJob:
         null_descriptor = os.open(os.devnull, os.O_RDONLY)
         try:
             current = self.api.GetCurrentProcess()
-            for descriptor in (null_descriptor, log_descriptor):
+            for descriptor in (null_descriptor if input_descriptor is None else input_descriptor, log_descriptor):
                 duplicate = w.HANDLE()
                 if not self.api.DuplicateHandle(current, msvcrt.get_osfhandle(descriptor), current,
                                                 ctypes.byref(duplicate), 0, True, 2):

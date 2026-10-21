@@ -1,4 +1,4 @@
-# Windows Nginx + PHP runtime
+# Windows Nginx + PHP runtime with optional MySQL
 
 Implemented on `feature/nginx-php-runtime`, based on `develop`. Downloaded binaries
 are not tracked in Git. Nothing starts automatically when opening the desktop app.
@@ -13,9 +13,10 @@ are not tracked in Git. Nothing starts automatically when opening the desktop ap
 4. Open the website or logs; Stop/Restart affect only this project's owned processes.
    Stop before editing/relinking/removing the profile. Restart includes downtime.
 
-Apache/MySQL remain profile settings only and are never started here. No FPM,
-mod_php, live version switching or extension management is implemented. The private
-ini enables no optional extensions. Exact package identities are portable; executable
+Apache remains a profile setting only. Optional Windows MySQL now has its own
+[runtime and database/user manager](MYSQL.md). No FPM, mod_php, live version switching
+or general extension manager is implemented. MySQL enables mysqli/PDO MySQL in the private
+ini. Exact package identities are portable; executable
 absolute paths are never saved. Missing selections/packages/roots need reassignment.
 
 ## Lifecycle and data boundaries
@@ -95,3 +96,43 @@ licensed app-local DLL ZIP has been approved; see the
 Other catalog combinations, optional PHP extensions/frameworks, non-ASCII/very-long
 paths, removable-media filesystems, macOS/ARM64 runtimes and frozen packaging remain
 unverified. Logs and the runtime library cache have no automatic retention/pruning.
+
+## MySQL verification — 2026-10-21
+
+Implemented on `feature/mysql-runtime` from `origin/develop` at `59f72b7`.
+The baseline CI run [39584765607](https://github.com/klusik/local_server/actions/runs/39584765607)
+was successful. Before changes, all 100 existing tests passed locally after
+setting writable sandbox temp paths. The final Windows x64 suite passed all
+**128 tests**, including the explicit real Credential Manager roundtrip and
+Windows kernel containment tests. Python compilation and `git diff --check` passed.
+No tests used `test_server` or a user datadir.
+
+`tools/smoke_mysql.py` used receipt-backed Nginx 1.30.6, PHP 8.4.26 NTS and MySQL
+Community 8.4.13 copied into a fresh disposable application. The MySQL archive
+passed the existing installer's pinned SHA-256/size/PE checks; upstream timeouts
+required a longer diagnostic download timeout, without changing TLS/integrity.
+The following actual checks passed, including before/after moving the entire
+disposable application to a different path with spaces:
+
+- Secure initialization, SQL identity/version checks, HTTP/mysqli SQL and real
+  mysqli/PDO extension loading; a newly created account also connected through
+  PHP before its authentication cache was populated by the official client.
+- Database/user creation, denied access and hidden schemas outside the account's
+  grant; separate project server UUIDs/data/credentials and refusal of another
+  project's credentials on the second instance.
+- Preserved table contents through restart, graceful stop/start, relocation and
+  unexpected owned database/PHP exits; complete stack rollback and released leases.
+- Actual cancellation of first initialization, SQL port collision, duplicate
+  startup, cross-manager package removal refusal, incompatible data-version
+  refusal and missing vault credentials without replacing/deleting existing data.
+- Live server variables confirmed IPv4 loopback, disabled pipe/shared memory,
+  no admin address and disabled persisted globals; no active X Plugin.
+- No generated password in ordinary configs/logs/profiles/owned argv, and no PHP
+  source response after stopping PHP while Nginx remained up.
+
+The smoke test gracefully closes its owned processes and removes its own data and
+vault entries. A separate disposable UI window launched successfully, but automated
+visual/interaction verification did not complete because app-access approval timed
+out. Its empty test database was subsequently shut down and cleaned independently.
+The real gallery workload, full interactive manager workflow, clean Windows and
+cross-machine vault restoration remain unverified. See [MYSQL.md](MYSQL.md).

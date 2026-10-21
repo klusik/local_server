@@ -7,6 +7,14 @@ PHP web applications execute with the current user's permissions, so an
 untrusted application can read/write files that the user can access.
 Do not expose these development servers to the public internet.
 
+MySQL uses separate instances/datadirs, generated administrator and limited
+application credentials, and Windows Credential Manager. Private bootstrap/client
+IO is ACL-protected and removed after use; SQL/passwords never enter argv or project
+JSON. X/named-pipe/shared-memory/admin listeners are disabled or absent. Exact
+data/server identity forbids silent migration/replacement. New managed accounts
+get only one database. These SQL boundaries share a Windows account; see
+[MYSQL.md](MYSQL.md) for portability, ACL and disk-erasure limits.
+
 ## Already enforced by the scaffold
 
 - Generated Nginx sites listen only on IPv4 loopback `127.0.0.1`.
@@ -48,10 +56,8 @@ Do not expose these development servers to the public internet.
 - Equivalent FastCGI lifecycle and dependency validation for future macOS support;
   Windows PHP-CGI configuration/lifecycle is implemented and loopback-only.
 - Broader PHP-version/extension security testing beyond the verified 8.4.26 stack.
-- Run MySQL with private data directory and strong generated credentials,
-  never shared default root credentials.
-- Store database secrets in Windows Credential Manager or macOS Keychain,
-  not in project JSON or plain-text logs.
+- Equivalent macOS MySQL lifecycle and Keychain support; Windows isolation,
+  generated credentials and Credential Manager storage are implemented.
 - Safe HTTPS certificate handling, enabled only with explicit user consent.
 - Full-stack integration tests and runtime update vulnerability monitoring.
 

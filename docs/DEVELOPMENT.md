@@ -82,6 +82,14 @@ relocated copies live in disposable `.test-tmp/` directories. No Apache or MySQL
 binary is run. The host's VC++ runtime must already satisfy the package checks.
 If sandbox temp permissions fail, set `TMP` and `TEMP` to a writable test directory.
 
+For MySQL, acquire the exact reviewed Community 8.4.13 package in Components,
+then run `python tools/smoke_mysql.py` with `PYTHONPATH=src` on Windows x64.
+This additionally initializes disposable databases, uses temporary Windows vault
+entries, checks SQL/PHP/HTTP, isolation, relocation, shutdown and failure paths,
+then removes its own data/credentials. It never opens `test_server` or an existing
+user datadir. Opt into the small real-vault unit test with
+`LOCAL_SERVER_TEST_VAULT=1`; otherwise that test skips. Other tests mock OS secrets.
+
 ## Developer state isolation
 
 Normal state paths are described in [Architecture](ARCHITECTURE.md). For a test
@@ -92,8 +100,9 @@ ignored; never add archives, binaries or review scratch files to Git.
 
 The main window edits profiles and previews Nginx config. Components manages
 reviewed portable archives with progress, cancellation/retry and guarded removal.
-It now starts explicitly selected Nginx/PHP packages on Windows x64. It does not
-initialize MySQL or switch running PHP versions without a stop/start. See
+It starts explicitly selected Nginx/PHP and optional MySQL packages on Windows x64,
+including secure per-project initialization and database/user creation. PHP switching
+still requires stop/start. See
 [runtime verification](RUNTIME.md) for completed and pending checks. Initial tests
 ran locally; GitHub Actions runs the cross-platform matrix on pushes and PRs.
 
