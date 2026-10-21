@@ -61,7 +61,9 @@ class PortablePathsTests(unittest.TestCase):
             moved = base / "new"
             app.rename(moved)
             loaded = ProjectStore(moved / ".local-server" / "projects.json", portable_root=moved).load()[0]
-            self.assertEqual(loaded.document_root, str(moved / "sites" / "gallery"))
+            # Profiles store canonical paths: temp roots can use /var aliases on
+            # macOS or short (8.3) user-folder names on Windows CI runners.
+            self.assertEqual(loaded.document_root, str((moved / "sites" / "gallery").resolve()))
 
     def test_external_root_stays_explicit(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
