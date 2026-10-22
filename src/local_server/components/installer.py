@@ -7,6 +7,7 @@ import shutil
 import struct
 import tempfile
 import threading
+import urllib.error
 import urllib.request
 from dataclasses import asdict
 from http.client import HTTPMessage
@@ -14,6 +15,7 @@ from pathlib import Path
 from typing import IO, Callable, Mapping
 from urllib.parse import urlsplit
 
+from local_server import __version__
 from local_server.core.paths import AppPaths, reject_links
 from local_server.core.platform import PlatformTarget
 
@@ -25,6 +27,8 @@ from .prerequisites import prerequisite_issues
 from .runtime_bundle import RuntimeBundle
 
 MAX_DOWNLOAD_BYTES = 2 * 1024**3
+DOWNLOAD_TIMEOUT_SECONDS = 30
+DOWNLOAD_OPEN_ATTEMPTS = 3
 RECEIPT = ".local-server-package.json"
 Progress = Callable[[str, int, int], None]
 
@@ -315,14 +319,31 @@ class ComponentInstaller:
         request = urllib.request.Request(
             package.url,
             headers={
-                "User-Agent": "LocalServer/0.1",
+                "User-Agent": f"LocalServer/{__version__}",
                 "Referer": package.source or package.url,
             },
         )
         check()
         progress("downloading", 0, package.size_bytes)
         check()
-        with self._open(request, timeout=10) as response:
+        # Only retry establishing a response, before any archive bytes are written.
+        # A timed-out body, HTTP failure or integrity error is never resumed/reused.
+        for attempt in range(DOWNLOAD_OPEN_ATTEMPTS):
+            check()
+            try:
+                response = self._open(request, timeout=DOWNLOAD_TIMEOUT_SECONDS)
+            except (TimeoutError, urllib.error.URLError) as exc:
+                if isinstance(exc, urllib.error.URLError) and not isinstance(
+                    exc.reason, TimeoutError
+                ):
+                    raise
+                if attempt == DOWNLOAD_OPEN_ATTEMPTS - 1:
+                    raise
+            else:
+                break
+        else:
+            raise TimeoutError("Download server did not respond.")
+        with response:
             final_url = response.geturl()
             if urlsplit(final_url).scheme != "https":
                 raise ValueError("Download redirected away from HTTPS")
