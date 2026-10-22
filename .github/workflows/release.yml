@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: 'Version tag: v_X.Y or v_X.Y.Z (for example v_0.1)'
+        description: 'Version tag: v_X.Y or v_X.Y.Z (for example v_0.2)'
         required: true
         type: string
 
@@ -18,14 +18,17 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  publish:
-    name: Merge tested develop into main and tag
+  select:
+    name: Authorize and pin qualified develop before building
     if: ${{ github.event_name == 'workflow_dispatch' && startsWith(github.ref, 'refs/heads/') }}
     runs-on: ubuntu-latest
     timeout-minutes: 3
     permissions:
-      contents: write
+      contents: read
       actions: read
+    outputs:
+      candidate: ${{ steps.select.outputs.candidate }}
+      plan: ${{ steps.select.outputs.plan }}
     steps:
       - name: Require maintainer selection of branch-owned release CI
         uses: actions/github-script@v9
@@ -47,7 +50,8 @@ jobs:
       - uses: actions/setup-python@v7
         with:
           python-version: "3.14"
-      - name: Merge and atomically publish main plus version tag
+      - id: select
+        name: Validate version and select immutable source, target and integration evidence
         env:
           VERSION: ${{ inputs.version }}
           GH_TOKEN: ${{ github.token }}
@@ -57,4 +61,147 @@ jobs:
           export GIT_CONFIG_COUNT=1
           export GIT_CONFIG_KEY_0=http.https://github.com/.extraheader
           export GIT_CONFIG_VALUE_0="AUTHORIZATION: basic $(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)"
-          python -m tools.release --version "$VERSION"
+          python -m tools.release select --version "$VERSION"
+
+  build:
+    name: Build portable EXE and per-user Inno Setup 7 installer
+    needs: select
+    runs-on: windows-2025
+    timeout-minutes: 20
+    steps:
+      - name: Check out selected workflow implementation
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.sha }}
+          path: ci
+          persist-credentials: false
+      - name: Check out the exact qualified develop source
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.select.outputs.candidate }}
+          path: source
+          persist-credentials: false
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.14"
+          architecture: x64
+      - name: Install pinned build tools only
+        run: python -m pip install -r ci/packaging/requirements-windows.txt
+      - name: Acquire verified Inno Setup 7.1.0 in the runner user account
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $download = Join-Path $env:RUNNER_TEMP 'innosetup-7.1.0-x64.exe'
+          Invoke-WebRequest 'https://github.com/jrsoftware/issrc/releases/download/is-7_1_0/innosetup-7.1.0-x64.exe' -OutFile $download
+          $expected = '0362a383ed217d4c4239b5933866dd96d3eb2102737da92f80f6057a4b40df2f'
+          if ((Get-FileHash -LiteralPath $download -Algorithm SHA256).Hash.ToLowerInvariant() -ne $expected) {
+            throw 'Inno Setup download hash mismatch.'
+          }
+          $destination = Join-Path $env:RUNNER_TEMP 'inno7'
+          $process = Start-Process -FilePath $download -ArgumentList @('/CURRENTUSER', '/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', '/SP-', "/DIR=`"$destination`"") -WindowStyle Hidden -Wait -PassThru
+          if ($process.ExitCode -ne 0) { throw "Inno tool setup failed: $($process.ExitCode)" }
+          if (!(Test-Path -LiteralPath (Join-Path $destination 'ISCC.exe'))) { throw 'Inno 7 compiler missing.' }
+      - name: Build and smoke-check bundled Tk, portability, installation and uninstall
+        working-directory: ci
+        env:
+          PLAN_JSON: ${{ needs.select.outputs.plan }}
+        shell: pwsh
+        run: |
+          python -m tools.build_windows --plan-json $env:PLAN_JSON --source ../source --output ../dist --inno "$env:RUNNER_TEMP/inno7/ISCC.exe"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - uses: actions/upload-artifact@v7.0.1
+        with:
+          name: windows-release
+          path: dist/*
+          if-no-files-found: error
+          retention-days: 30
+
+  publish:
+    name: Merge tested develop into main and tag after successful build
+    needs: [select, build]
+    if: ${{ github.event_name == 'workflow_dispatch' && needs.build.result == 'success' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    permissions:
+      contents: write
+      actions: read
+    outputs:
+      commit: ${{ steps.publish.outputs.commit }}
+    steps:
+      - name: Authorize publication and reruns
+        uses: actions/github-script@v9
+        with:
+          script: |
+            for (const actor of new Set([context.actor, process.env.GITHUB_TRIGGERING_ACTOR])) {
+              const {data} = await github.rest.repos.getCollaboratorPermissionLevel({
+                ...context.repo, username: actor,
+              });
+              if (!['admin', 'maintain'].includes(data.permission)) throw new Error('Maintainer required.');
+            }
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.14"
+      - uses: actions/download-artifact@v8.0.1
+        with:
+          name: windows-release
+          path: dist
+      - id: publish
+        name: Verify exact build outputs and atomically publish main plus tag
+        env:
+          PLAN_JSON: ${{ needs.select.outputs.plan }}
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          export GIT_CONFIG_COUNT=1
+          export GIT_CONFIG_KEY_0=http.https://github.com/.extraheader
+          export GIT_CONFIG_VALUE_0="AUTHORIZATION: basic $(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)"
+          python -m tools.release publish --plan-json "$PLAN_JSON" --artifacts dist
+
+  draft:
+    name: Create draft GitHub Release with the two verified EXEs
+    needs: [select, build, publish]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write
+    steps:
+      - name: Authorize draft creation and reruns
+        uses: actions/github-script@v9
+        with:
+          script: |
+            for (const actor of new Set([context.actor, process.env.GITHUB_TRIGGERING_ACTOR])) {
+              const {data} = await github.rest.repos.getCollaboratorPermissionLevel({
+                ...context.repo, username: actor,
+              });
+              if (!['admin', 'maintain'].includes(data.permission)) throw new Error('Maintainer required.');
+            }
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.14"
+      - uses: actions/download-artifact@v8.0.1
+        with:
+          name: windows-release
+          path: dist
+      - name: Create or resume the draft without publishing or overwriting assets
+        env:
+          PLAN_JSON: ${{ needs.select.outputs.plan }}
+          RELEASE_COMMIT: ${{ needs.publish.outputs.commit }}
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          export GIT_CONFIG_COUNT=1
+          export GIT_CONFIG_KEY_0=http.https://github.com/.extraheader
+          export GIT_CONFIG_VALUE_0="AUTHORIZATION: basic $(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)"
+          python -m tools.release_draft --plan-json "$PLAN_JSON" --artifacts dist --commit "$RELEASE_COMMIT"

@@ -169,22 +169,49 @@ The feature branch remains available after integration.
 
 Open **Actions → Release → Run workflow**, choose the workflow implementation
 in **Use workflow from** (including a `feature/` branch with CI edits), and enter
-the required **version**, for example `v_0.1` or `v_0.1.0`. Only `v_X.Y` and
+the required **version**, for example `v_0.2` or `v_0.2.1`. Only `v_X.Y` and
 `v_X.Y.Z` are accepted: each component contains one or more ASCII digits.
 No prefixes other than `v_`, suffixes, whitespace or fourth component are accepted.
 The selected branch owns the release implementation; the released source is
 always the current remote `develop`, irrespective of the selected workflow branch.
 
 ```console
-gh workflow run release.yml --ref feature/my-ci-change -f version=v_0.1
+gh workflow run release.yml --ref feature/my-ci-change -f version=v_0.2
 ```
 
 Release does **not rerun tests**. It reads the successful manual Develop integrate
 run for the exact develop SHA and requires successful BASIC, all three Python 3.14
 platform jobs and publication in that completed attempt. Both the initiating and
 re-running actor must have `maintain` or `admin` permission. Releases are serialized.
+Use `v_X.Y` for regular releases and `v_X.Y.Z` for bugfixes and small changes.
 
-The job pins remote main/develop and performs an ordinary **`--no-ff` merge** of
+Before building, selection pins main, develop, workflow SHA, version and the
+integration run/attempt. A read-only Windows x64 job checks out that exact develop
+separately from the selected workflow implementation. It builds with Python 3.14,
+PyInstaller 6.22.3 (`--onefile --windowed`, including Python, Tk and catalog JSON)
+and SHA-256-pinned Inno Setup 7.1.0. Build tools are installed only on the disposable
+CI runner; the Inno compiler uses a user directory without requesting elevation.
+Build/version metadata is embedded without editing the source checkout.
+
+The build executes the actual EXE without Python/Tk developer environment paths,
+initializes bundled Tk, reads the catalog and checks storage beside the EXE from
+another working directory and a second location. It checks the generated EXE and
+installer execution manifests for `asInvoker`, silently installs the exact EXE,
+runs the installed bundle probe, then uninstalls and verifies retained user data.
+These are packaging smoke checks, not another BASIC/FULL source qualification.
+They run on a hosted Windows runner, not a pristine standard-user Windows machine.
+
+The installer defaults to `%LOCALAPPDATA%\Programs\LocalServer`, allows the user
+to select another writable directory, and never requests admin rights or offers an
+all-users override. The installed application uses the same portable layout.
+Uninstall removes application files and its current-user shortcut/registration,
+while retaining downloaded packages, profiles and databases. Portable users copy
+the entire application folder when moving state and packages. Server components
+and their existing VC++ prerequisites remain separate from the bundled Python/Tk app.
+
+Only after a successful build and upload, publication verifies the downloaded
+manifest, both file hashes and the original pinned plan. It rejects source/target
+drift rather than releasing a different develop head. It performs an ordinary **`--no-ff` merge** of
 develop into main. It preserves all develop commits; it never squashes develop.
 The merge tree must equal the already tested develop tree. A conflict or additional
 main-only content must first be resolved and qualified on develop. It creates an
@@ -195,9 +222,21 @@ branch heads, missing evidence or rejected updates fail the release; an atomic
 push rejection leaves both release refs unchanged by this run. Normal repository
 protections still apply, without a bypass token. A new run is required after failure.
 
-The tag identifies the release; this workflow does not edit application/package
-version metadata, build installers, create GitHub Release entries or publish docs.
-Those can be added as separately reviewed release stages later. As with integration,
+After main/tag publication, a separate job creates a **draft** GitHub Release:
+
+- `LocalServer-v_0.2-windows-x64-portable.exe`
+- `LocalServer-v_0.2-windows-x64-installer.exe`
+
+Every release uses its actual version in both names. The manifest binds both sizes
+and SHA-256 hashes to the pinned source/tooling/evidence; it is retained with the
+CI artifact for 30 days. The draft job verifies GitHub's uploaded asset hashes.
+It never publishes the draft automatically or overwrites conflicting assets.
+If draft creation/upload fails after merge, main/tag remain released; re-run the
+failed **draft** job to resume missing uploads without rebuilding or merging again.
+If the merge fails, no draft is created. Build failure never advances main or its tag.
+Artifacts are currently unsigned. Documentation publishing remains future work.
+
+As with integration,
 GitHub needs one initial registration of `release.yml` on the default branch;
 subsequent edits execute directly from the chosen feature branch. The default branch
 must also contain the local reusable workflow definitions referenced by integration

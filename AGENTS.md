@@ -24,6 +24,10 @@ before altering runtime or installer behavior.
   Preserve develop history with an ordinary merge into main; never squash develop.
   Reuse exact-SHA integration evidence without rerunning tests. Publish main and
   its annotated version tag atomically without force or overwriting existing tags.
+  Build the exact selected develop with PyInstaller and Inno Setup 7 before merging
+  main. Require per-user installation without elevation, preserve user data on
+  uninstall, and attach both versioned EXEs to a draft GitHub Release after merge.
+  Use v_X.Y for regular releases and v_X.Y.Z for bugfixes and small changes.
 - Keep Tkinter concerns inside src/local_server/ui; keep IO/network/process work
   off the Tk event loop once those features are integrated.
 - Do not claim Apache, Nginx, PHP or MySQL starts or installs until verified

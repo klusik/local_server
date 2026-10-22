@@ -122,6 +122,26 @@ update, branch-protection bypass or unchecked generated merge. Branch rules are
 enforced by GitHub and may reject publication. No runtime downloads, real server
 smoke tests, credential-vault opt-in or system installation is added to CI.
 
+## Windows distribution boundary
+
+Release reads exact-SHA develop integration evidence without rerunning source
+tests, pins main/develop/tooling before building, and requires a successful
+PyInstaller one-file and Inno Setup 7 build plus offline bundle/install smoke checks
+before main publication. Build runs read-only; only main/tag publication and draft
+attachment receive contents write. The artifact manifest binds source, tooling,
+version, integration attempt and both EXE hashes. Main must still match the
+selected head and the merge tree must equal qualified develop.
+
+Generated executables use `asInvoker`; the installer fixes `PrivilegesRequired=lowest`
+without overrides and defaults to the current user's LocalAppData Programs folder.
+It creates no service, system PATH entry or machine-wide component installation.
+Uninstall retains user-created state and packages. Python/Tk are bundled; separate
+web/database packages keep their documented host VC++ requirements. Artifacts are
+unsigned: neither code signing nor clean-machine runtime verification is claimed.
+Draft upload verifies GitHub's asset digests and never overwrites a conflicting
+asset or automatically publishes a release. Partial draft uploads can be resumed
+by rerunning the draft job; main/tag are not rolled back after a later API failure.
+
 ## Reporting security issues
 
 Avoid publishing exploits, secrets or sensitive local path information in

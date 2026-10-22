@@ -93,7 +93,9 @@ GitHub issues, Project board and release milestones will be created later.
 
 ## Phase 7: Distribution and release process
 
-- [ ] User-level Windows distributable and signed macOS application.
+- [x] One-file Windows x64 portable EXE and non-admin Inno Setup 7 installer.
+- [x] Build before main merge; attach versioned EXEs to a draft GitHub Release.
+- [ ] Signed Windows/macOS applications and macOS distribution packaging.
 - [ ] Verify Tk bundling, architectures, updates and code signing.
 - [ ] Component cache controls and fully reversible uninstall.
 - [ ] CI unit/integration/security tests plus smoke tests on clean machines.

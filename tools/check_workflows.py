@@ -25,7 +25,7 @@ def workflow_policy(workflows: dict[str, Any]) -> list[str]:
         errors.append("Release must only accept explicit manual dispatch.")
     if release["on"].get("workflow_dispatch", {}).get("inputs") != {
         "version": {
-            "description": "Version tag: v_X.Y or v_X.Y.Z (for example v_0.1)",
+            "description": "Version tag: v_X.Y or v_X.Y.Z (for example v_0.2)",
             "required": True,
             "type": "string",
         }
@@ -33,27 +33,75 @@ def workflow_policy(workflows: dict[str, Any]) -> list[str]:
         errors.append("Release must require a literal version input.")
     if release.get("concurrency") != {"group": "release", "cancel-in-progress": False}:
         errors.append("Releases must be serialized without cancellation.")
-    if set(release["jobs"]) != {"publish"}:
-        errors.append("Release must publish without running another test matrix.")
+    if set(release["jobs"]) != {"select", "build", "publish", "draft"}:
+        errors.append(
+            "Release must select, build, merge and create a draft without another matrix."
+        )
     release_job = release["jobs"]["publish"]
     if release_job.get("permissions") != {"contents": "write", "actions": "read"}:
         errors.append(
             "Release needs publication access and read-only integration evidence."
         )
-    if release_job.get("if") != (
+    if release["jobs"]["select"].get("if") != (
         "${{ github.event_name == 'workflow_dispatch' && "
         "startsWith(github.ref, 'refs/heads/') }}"
     ):
         errors.append("Release must execute from a manually selected branch.")
     release_steps = release_job.get("steps", [])
     if not any(
-        'python -m tools.release --version "$VERSION"' in step.get("run", "")
-        and step.get("env", {}).get("VERSION") == "${{ inputs.version }}"
+        'python -m tools.release publish --plan-json "$PLAN_JSON" --artifacts dist'
+        in step.get("run", "")
+        and step.get("env", {}).get("PLAN_JSON") == "${{ needs.select.outputs.plan }}"
         for step in release_steps
     ):
         errors.append(
             "Release must use the version-validating atomic publication helper."
         )
+    if set(release_job.get("needs", [])) != {"select", "build"} or release_job.get(
+        "if"
+    ) != (
+        "${{ github.event_name == 'workflow_dispatch' && needs.build.result == 'success' }}"
+    ):
+        errors.append(
+            "Main publication must wait for the successful complete Windows build."
+        )
+    release_jobs = release["jobs"]
+    if release_jobs["select"].get("outputs") != {
+        "candidate": "${{ steps.select.outputs.candidate }}",
+        "plan": "${{ steps.select.outputs.plan }}",
+    }:
+        errors.append(
+            "Release selection must pin source, target, workflow and evidence before build."
+        )
+    if release_jobs["build"].get("needs") != "select":
+        errors.append("Build must depend on immutable source selection.")
+    source_checkouts = [
+        step.get("with", {})
+        for step in release_jobs["build"].get("steps", [])
+        if step.get("uses", "").startswith("actions/checkout@")
+    ]
+    if {item.get("path"): item.get("ref") for item in source_checkouts} != {
+        "ci": "${{ github.sha }}",
+        "source": "${{ needs.select.outputs.candidate }}",
+    }:
+        errors.append(
+            "Build must separate workflow code from the exact qualified develop source."
+        )
+    draft = release_jobs["draft"]
+    if set(draft.get("needs", [])) != {"select", "build", "publish"} or draft.get("if"):
+        errors.append(
+            "Draft creation must wait for successful build and main publication."
+        )
+    for job_name in ("publish", "draft"):
+        downloads = [
+            step.get("with", {})
+            for step in release_jobs[job_name].get("steps", [])
+            if step.get("uses", "").startswith("actions/download-artifact@")
+        ]
+        if downloads != [{"name": "windows-release", "path": "dist"}]:
+            errors.append(
+                "Publication and draft must consume the same run's exact Windows artifact."
+            )
     if set(integrate["on"]) != {"workflow_dispatch"}:
         errors.append("Integration must only accept explicit manual dispatch.")
     if ci["jobs"]["full"].get("if") != "${{ github.event_name != 'push' }}":
@@ -115,10 +163,11 @@ def workflow_policy(workflows: dict[str, Any]) -> list[str]:
             errors.append(f"{filename}: default token permissions must be read-only.")
         for name, job in workflow["jobs"].items():
             if job.get("permissions", {}).get("contents") == "write":
-                if (
-                    filename not in {"develop-integration.yml", "release.yml"}
-                    or name != "publish"
-                ):
+                if (filename, name) not in {
+                    ("develop-integration.yml", "publish"),
+                    ("release.yml", "publish"),
+                    ("release.yml", "draft"),
+                }:
                     errors.append(
                         "Only the publication job may receive repository write access."
                     )
