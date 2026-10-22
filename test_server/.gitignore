@@ -1,0 +1,3 @@
+# Keep the local test website private to this checkout.
+*
+!.gitignore

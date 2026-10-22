@@ -12,6 +12,7 @@ venv/
 .nox/
 .pytest_cache/
 .ruff_cache/
+.mypy_cache/
 .coverage
 htmlcov/
 
@@ -22,8 +23,10 @@ htmlcov/
 Thumbs.db
 
 # Local state, logs, downloaded binaries
+/packages/
 .local-server/
-runtime/
+/runtime/
+.test-tmp/
 downloads/
 components-installed/
 logs/

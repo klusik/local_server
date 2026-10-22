@@ -1,4 +1,163 @@
 {
   "schema_version": 1,
-  "packages": []
+  "reviewed_on": "2026-10-21",
+  "packages": [
+    {
+      "component": "nginx",
+      "version": "1.31.7",
+      "os": "windows",
+      "arch": "x86_64",
+      "binary_arch": "x86",
+      "variant": "win32-wow64",
+      "url": "https://nginx.org/download/nginx-1.31.7.zip",
+      "sha256": "7c717ccf861f8925be64431d06d57634512a5014bcc8d149f279928f5e8151bf",
+      "archive": "zip",
+      "entrypoint": "nginx.exe",
+      "strip_components": 1,
+      "source": "https://nginx.org/en/download.html",
+      "checksum_source": "docs/PACKAGE_REVIEW.md (SHA-256 measured from official HTTPS archive)",
+      "license": "BSD-2-Clause; bundled OpenSSL/zlib notices retained",
+      "requirements": [
+        "Windows 10/11 x64 with WoW64 (32-bit executable)"
+      ],
+      "notes": "Official Windows beta. No service registration. Runtime health is untested.",
+      "size_bytes": 2795610
+    },
+    {
+      "component": "nginx",
+      "version": "1.30.6",
+      "os": "windows",
+      "arch": "x86_64",
+      "binary_arch": "x86",
+      "variant": "win32-wow64",
+      "url": "https://nginx.org/download/nginx-1.30.6.zip",
+      "sha256": "c6ee35edb0a861063323f709192ae50d1eefaf2ea7d00678bd2b22d8542dc61e",
+      "archive": "zip",
+      "entrypoint": "nginx.exe",
+      "strip_components": 1,
+      "source": "https://nginx.org/en/download.html",
+      "checksum_source": "docs/PACKAGE_REVIEW.md (SHA-256 measured from official HTTPS archive)",
+      "license": "BSD-2-Clause; bundled OpenSSL/zlib notices retained",
+      "requirements": [
+        "Windows 10/11 x64 with WoW64 (32-bit executable)"
+      ],
+      "notes": "Official Windows beta. No service registration. Runtime health is untested.",
+      "size_bytes": 2773293
+    },
+    {
+      "component": "apache",
+      "version": "2.4.69-261002",
+      "os": "windows",
+      "arch": "x86_64",
+      "binary_arch": "x86_64",
+      "variant": "vs18",
+      "url": "https://www.apachelounge.com/download/VS18/binaries/httpd-2.4.69-261002-Win64-VS18.zip",
+      "sha256": "ca272e0b75abad78b1e4029a0753b20ff2232d2d857e8eebeea5d469c5776977",
+      "archive": "zip",
+      "entrypoint": "Apache24/bin/httpd.exe",
+      "source": "https://www.apachelounge.com/download/",
+      "checksum_source": "https://www.apachelounge.com/download/VS18/binaries/httpd-2.4.69-261002-Win64-VS18.zip.txt",
+      "license": "Apache-2.0; bundled dependency notices retained",
+      "vc_minimum": "14.51.36247.0",
+      "requirements": [
+        "Windows 10/11 x64",
+        "Microsoft Visual C++ 2017-2026 x64 >= 14.51.36247.0 (installed separately)"
+      ],
+      "notes": "Third-party Apache Lounge build of ASF sources, not an ASF Windows binary. Upstream httpd.conf uses C:/Apache24; the future runtime adapter must generate its own configuration on each start. This archive is not a configured server.",
+      "size_bytes": 14495717
+    },
+    {
+      "component": "php",
+      "version": "8.5.11",
+      "os": "windows",
+      "arch": "x86_64",
+      "binary_arch": "x86_64",
+      "variant": "nts-cgi",
+      "url": "https://downloads.php.net/~windows/releases/php-8.5.11-nts-Win32-vs17-x64.zip",
+      "sha256": "0ea96e0d2b9b737a6036f05cf4e95c49313faa6d0f27bd97edb2742503f0c043",
+      "archive": "zip",
+      "entrypoint": "php-cgi.exe",
+      "source": "https://windows.php.net/download/",
+      "checksum_source": "https://downloads.php.net/~windows/releases/releases.json",
+      "license": "PHP-3.01 + Zend-2.0; bundled dependency notices retained",
+      "vc_minimum": "14.44.35211.0",
+      "requirements": [
+        "Windows 10/11 x64",
+        "Microsoft Visual C++ 2015-2022 x64 >= 14.44.35211.0 (conservative acquisition policy)",
+        "CGI/FastCGI via php-cgi.exe; no FPM, no TS/mod_php"
+      ],
+      "notes": "Official NTS vs17 x64 build. For future separate FastCGI workers with Nginx or Apache proxy_fcgi. PHP extensions must match version, NTS, architecture and toolset. Runtime health is untested.",
+      "size_bytes": 36048897
+    },
+    {
+      "component": "php",
+      "version": "8.4.26",
+      "os": "windows",
+      "arch": "x86_64",
+      "binary_arch": "x86_64",
+      "variant": "nts-cgi",
+      "url": "https://downloads.php.net/~windows/releases/php-8.4.26-nts-Win32-vs17-x64.zip",
+      "sha256": "da68394f9193b7f6b89d0c76861a4034ae10efee7fd55a7255d8118c2acf70d7",
+      "archive": "zip",
+      "entrypoint": "php-cgi.exe",
+      "source": "https://windows.php.net/download/",
+      "checksum_source": "https://downloads.php.net/~windows/releases/releases.json",
+      "license": "PHP-3.01 + Zend-2.0; bundled dependency notices retained",
+      "vc_minimum": "14.44.35211.0",
+      "requirements": [
+        "Windows 10/11 x64",
+        "Microsoft Visual C++ 2015-2022 x64 >= 14.44.35211.0 (conservative acquisition policy)",
+        "CGI/FastCGI via php-cgi.exe; no FPM, no TS/mod_php"
+      ],
+      "notes": "Official NTS vs17 x64 build. For future separate FastCGI workers with Nginx or Apache proxy_fcgi. PHP extensions must match version, NTS, architecture and toolset. Runtime health is untested.",
+      "size_bytes": 35103568
+    },
+    {
+      "component": "php",
+      "version": "8.3.35",
+      "os": "windows",
+      "arch": "x86_64",
+      "binary_arch": "x86_64",
+      "variant": "nts-cgi",
+      "url": "https://downloads.php.net/~windows/releases/php-8.3.35-nts-Win32-vs16-x64.zip",
+      "sha256": "25a8e2ac9ff30f1d768d1447c09a600617fa6e6082729f6e95f008b59c91fe45",
+      "archive": "zip",
+      "entrypoint": "php-cgi.exe",
+      "source": "https://windows.php.net/download/",
+      "checksum_source": "https://downloads.php.net/~windows/releases/releases.json",
+      "license": "PHP-3.01 + Zend-2.0; bundled dependency notices retained",
+      "vc_minimum": "14.44.35211.0",
+      "requirements": [
+        "Windows 10/11 x64",
+        "Microsoft Visual C++ 2015-2022 x64 >= 14.44.35211.0 (conservative acquisition policy)",
+        "CGI/FastCGI via php-cgi.exe; no FPM, no TS/mod_php"
+      ],
+      "notes": "Official NTS vs16 x64 build. For future separate FastCGI workers with Nginx or Apache proxy_fcgi. PHP extensions must match version, NTS, architecture and toolset. Runtime health is untested.",
+      "size_bytes": 33873909
+    },
+    {
+      "component": "mysql",
+      "version": "8.4.13",
+      "os": "windows",
+      "arch": "x86_64",
+      "binary_arch": "x86_64",
+      "variant": "community",
+      "url": "https://cdn.mysql.com//Downloads/MySQL-8.4/mysql-8.4.13-winx64.zip",
+      "sha256": "e9cd98b1d23f122987b1afca26ad942efec5891481103d48ae3cde237fa3ea54",
+      "archive": "zip",
+      "entrypoint": "bin/mysqld.exe",
+      "strip_components": 1,
+      "source": "https://dev.mysql.com/downloads/mysql/8.4.html",
+      "checksum_source": "docs/PACKAGE_REVIEW.md (official HTTPS + published MD5 cross-check; SHA-256 measured)",
+      "license": "GPL-2.0 with additional permissions; bundled notices retained",
+      "vc_minimum": "14.44.35211.0",
+      "requirements": [
+        "Windows 10/11 x64",
+        "Microsoft Visual C++ x64 >= 14.44.35211.0 (conservative policy; upstream requires VS2019 runtime)"
+      ],
+      "notes": "Official Community LTS ZIP. Download and extraction only. No database, credentials, configuration, service or MySQL Configurator is created or run. Runtime health is untested.",
+      "size_bytes": 281154912
+    }
+  ],
+  "runtime_bundles": []
 }

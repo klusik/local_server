@@ -1,7 +1,5 @@
 """Secure component-catalog resolution tests."""
 
-from __future__ import annotations
-
 import unittest
 from dataclasses import replace
 
@@ -13,6 +11,7 @@ class CatalogTests(unittest.TestCase):
     """Package metadata must be deterministic, strict, and checksum pinned."""
 
     def setUp(self) -> None:
+        """Create isolated test resources."""
         self.package = PackageSpec(
             component="nginx",
             version="1.30.0",
@@ -27,7 +26,31 @@ class CatalogTests(unittest.TestCase):
 
     def test_bundled_catalog_starts_empty(self) -> None:
         """An intentionally uncurated catalog is never advertised as ready."""
-        self.assertEqual(PackageCatalog.bundled().packages, ())
+        packages = PackageCatalog.bundled().packages
+        self.assertEqual(
+            {p.component for p in packages}, {"apache", "nginx", "php", "mysql"}
+        )
+        self.assertTrue(
+            all(
+                p.source and p.checksum_source and p.license and p.size_bytes > 0
+                for p in packages
+            )
+        )
+        self.assertTrue(all((p.os, p.arch) == ("windows", "x86_64") for p in packages))
+        self.assertGreaterEqual(sum(p.component == "php" for p in packages), 2)
+
+    def test_windows_php_rejects_incompatible_builds(self) -> None:
+        """Windows acquisition cannot mistake FPM or mod_php for FastCGI."""
+        for variant in ("ts", "fpm", "default"):
+            with self.subTest(variant=variant), self.assertRaises(ValueError):
+                replace(self.package, component="php", variant=variant).validate()
+        replace(self.package, component="php", variant="nts-cgi").validate()
+
+    def test_identifiers_reject_windows_aliases(self) -> None:
+        """Version folders must not become device names or trailing-dot aliases."""
+        for version in ("NUL", "COM1.txt", "1.0."):
+            with self.subTest(version=version), self.assertRaises(ValueError):
+                replace(self.package, version=version).validate()
 
     def test_find_by_component_version_platform(self) -> None:
         """Only the exact platform-specific package may be selected."""

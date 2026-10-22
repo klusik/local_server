@@ -1,7 +1,5 @@
 """Domain-profile validation regression tests."""
 
-from __future__ import annotations
-
 import tempfile
 import unittest
 from dataclasses import replace
@@ -14,6 +12,7 @@ class ProjectProfileTests(unittest.TestCase):
     """Verify strict profile validation and stable serialization."""
 
     def setUp(self) -> None:
+        """Create isolated test resources."""
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
         self.root = Path(self.temp.name)

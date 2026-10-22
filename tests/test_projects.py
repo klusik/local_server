@@ -1,7 +1,5 @@
 """Application-service profile CRUD tests."""
 
-from __future__ import annotations
-
 import tempfile
 import unittest
 from pathlib import Path
@@ -14,6 +12,7 @@ class ProjectServiceTests(unittest.TestCase):
     """Project CRUD must never modify a user's source code directories."""
 
     def setUp(self) -> None:
+        """Create isolated test resources."""
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
         self.root = Path(self.temp.name)

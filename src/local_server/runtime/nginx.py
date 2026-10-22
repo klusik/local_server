@@ -1,14 +1,19 @@
 """Localhost-only Nginx configuration rendering for one project."""
 
-from __future__ import annotations
-
 from pathlib import Path
 
 from local_server.core.models import ProjectProfile
 
 
 def _quoted_path(value: str | Path) -> str:
-    """Quote a filesystem path conservatively for an Nginx config string."""
+    """Quote a filesystem path conservatively for an Nginx config string.
+
+    Args:
+        value (str | Path): Input value to validate or encode.
+
+    Returns:
+        str: Escaped absolute path suitable for an Nginx configuration string.
+    """
     normalized = Path(value).resolve().as_posix()
     if any(character in normalized for character in {'"', "$", "\r", "\n"}):
         raise ValueError("Path contains unsupported Nginx configuration characters")
@@ -20,11 +25,24 @@ def render_nginx_config(
     config_dir: Path,
     *,
     php_upstream_port: int | None = None,
+    diagnostic: tuple[str, Path] | None = None,
 ) -> str:
     """Render an isolated foreground server restricted to 127.0.0.1.
 
     If no FastCGI upstream is available, PHP files are blocked rather than
     accidentally served as source. Starting the processes is a separate step.
+
+    Args:
+        project (ProjectProfile): Validated profile whose resources remain isolated by
+            project UUID.
+        config_dir (Path): Private directory for generated configuration files.
+        php_upstream_port (int | None): Private loopback FastCGI port, or None to deny
+            PHP.
+        diagnostic (tuple[str, Path] | None): Private diagnostic PHP script used for the
+            health probe.
+
+    Returns:
+        str: Isolated foreground Nginx configuration bound only to IPv4 loopback.
     """
     project.validate()
     if project.server != "nginx":
@@ -32,7 +50,7 @@ def render_nginx_config(
     if php_upstream_port is not None and (
         isinstance(php_upstream_port, bool)
         or not isinstance(php_upstream_port, int)
-        or not 1 <= php_upstream_port <= 65535
+        or not 1024 <= php_upstream_port <= 65535
         or php_upstream_port == project.http_port
     ):
         raise ValueError("Invalid PHP FastCGI upstream port")
@@ -44,7 +62,7 @@ def render_nginx_config(
 
     if php_upstream_port is None:
         php_location = (
-            "        location ~* \\.(?:php[0-9]?|phtml|phar|phps)(?:/|$) {\n"
+            "        location ~* \\.(?:php[0-9]?|phtml|phar|phps)(?:[^a-z0-9]|$) {\n"
             "            return 404;\n"
             "        }\n"
         )
@@ -52,12 +70,28 @@ def render_nginx_config(
         php_location = (
             "        location ~* \\.php$ {\n"
             "            try_files $uri =404;\n"
-            "            include fastcgi_params;\n"
+            f"            include {_quoted_path(config_dir / 'fastcgi_params')};\n"
             "            fastcgi_param SCRIPT_FILENAME $document_root$fastcgi_script_name;\n"
-            "            fastcgi_param HTTP_PROXY \"\";\n"
+            '            fastcgi_param HTTP_PROXY "";\n'
             f"            fastcgi_pass 127.0.0.1:{php_upstream_port};\n"
             "        }\n"
-            "        location ~* \\.(?:php[0-9]|phtml|phar|phps)(?:/|$) { return 404; }\n"
+            "        location ~* \\.(?:php[0-9]?|phtml|phar|phps)(?:[^a-z0-9]|$) { return 404; }\n"
+        )
+
+    diagnostic_location = ""
+    if diagnostic is not None:
+        import re
+
+        token, script = diagnostic
+        if not re.fullmatch(r"[a-f0-9]{32}", token) or php_upstream_port is None:
+            raise ValueError("Invalid runtime diagnostic")
+        diagnostic_location = (
+            f"        location = /__local_server_{token}.php {{\n"
+            f"            include {_quoted_path(config_dir / 'fastcgi_params')};\n"
+            f"            fastcgi_param SCRIPT_FILENAME {_quoted_path(script)};\n"
+            '            fastcgi_param HTTP_PROXY "";\n'
+            f"            fastcgi_pass 127.0.0.1:{php_upstream_port};\n"
+            "        }\n"
         )
 
     return (
@@ -68,7 +102,12 @@ def render_nginx_config(
         f"error_log {errors} info;\n"
         "events { worker_connections 256; }\n"
         "http {\n"
-        "    include mime.types;\n"
+        f"    include {_quoted_path(config_dir / 'mime.types')};\n"
+        f"    client_body_temp_path {_quoted_path(config_dir / 'client_temp')};\n"
+        f"    proxy_temp_path {_quoted_path(config_dir / 'proxy_temp')};\n"
+        f"    fastcgi_temp_path {_quoted_path(config_dir / 'fastcgi_temp')};\n"
+        f"    uwsgi_temp_path {_quoted_path(config_dir / 'uwsgi_temp')};\n"
+        f"    scgi_temp_path {_quoted_path(config_dir / 'scgi_temp')};\n"
         "    default_type application/octet-stream;\n"
         f"    access_log {accesses};\n"
         "    server_tokens off;\n"
@@ -79,7 +118,7 @@ def render_nginx_config(
         "        index index.php index.html index.htm;\n"
         "        location / { try_files $uri $uri/ =404; }\n"
         "        location ~ /\\.(?!well-known) { deny all; }\n"
-        f"{php_location}"
+        f"{diagnostic_location}{php_location}"
         "    }\n"
         "}\n"
     )
