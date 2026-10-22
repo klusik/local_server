@@ -48,6 +48,6 @@ jobs:
       - name: Test fast-forward and workflow safety
         run: python -m unittest discover -s tests -p test_develop_integration.py -v
       - name: Test release versions, history preservation and atomic publication
-        run: python -m unittest discover -s tests -p test_release.py -v
+        run: python -m unittest discover -s tests -p 'test_release*.py' -v
       - name: Validate workflow authorization graph
         run: python tools/check_workflows.py

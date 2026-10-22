@@ -5,6 +5,7 @@ import json
 import os
 import re
 from collections.abc import Callable
+from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any
 from urllib.request import Request, urlopen
@@ -13,6 +14,48 @@ from tools.integrate_develop import ROOT, SHA, git
 
 VERSION: re.Pattern[str] = re.compile(r"v_[0-9]+\.[0-9]+(?:\.[0-9]+)?\Z")
 type ReadAPI = Callable[[str], dict[str, Any]]
+
+
+@dataclass(frozen=True, slots=True)
+class ReleasePlan:
+    """Immutable source, target, tooling and integration selected before building."""
+
+    version: str
+    main: str
+    develop: str
+    workflow: str
+    integration: int
+    attempt: int
+
+    def to_json(self) -> str:
+        """Encode the plan for job outputs and the artifact manifest.
+
+        Returns:
+            str: Single-line JSON with only validated immutable release inputs.
+        """
+        return json.dumps(asdict(self), sort_keys=True)
+
+    @classmethod
+    def from_json(cls, content: str) -> "ReleasePlan":
+        """Decode and validate a plan received from the selection job.
+
+        Args:
+            content (str): JSON emitted by the release selection helper.
+
+        Returns:
+            ReleasePlan: Validated version, commit SHAs and integration evidence.
+        """
+        plan = cls(**json.loads(content))
+        validate_version(plan.version)
+        if not all(
+            SHA.fullmatch(value) for value in (plan.main, plan.develop, plan.workflow)
+        ):
+            raise ValueError("Release plan must contain exact commit SHAs.")
+        if type(plan.integration) is not int or type(plan.attempt) is not int:
+            raise ValueError("Integration identity must contain integer IDs.")
+        if plan.integration <= 0 or plan.attempt <= 0:
+            raise ValueError("Integration identity must be positive.")
+        return plan
 
 
 def validate_version(version: str) -> None:
@@ -126,16 +169,16 @@ def remote_refs(version: str, root: Path) -> dict[str, str]:
     return {ref: sha for sha, ref in (line.split("\t") for line in output.splitlines())}
 
 
-def publish(version: str, root: Path, api: ReadAPI = read_api) -> str:
-    """Preserve develop history with a merge and publish main plus tag atomically.
+def select(version: str, root: Path, api: ReadAPI = read_api) -> ReleasePlan:
+    """Pin qualified develop, main and tooling before starting any build.
 
     Args:
         version (str): Unique numeric version in v_X.Y or v_X.Y.Z format.
-        root (Path): Disposable CI checkout containing the chosen release tooling.
+        root (Path): Checkout containing the chosen release tooling.
         api (ReadAPI): Reader used to verify existing integration evidence.
 
     Returns:
-        str: Published main commit SHA, also targeted by the annotated version tag.
+        ReleasePlan: Immutable release inputs carried through build and publication.
     """
     refs = remote_refs(version, root)
     main = refs.get("refs/heads/main", "")
@@ -145,6 +188,34 @@ def publish(version: str, root: Path, api: ReadAPI = read_api) -> str:
     if f"refs/tags/{version}" in refs:
         raise ValueError("Version tag already exists; tags are never overwritten.")
     evidence = qualification(develop, api)
+    return ReleasePlan(
+        version, main, develop, git(["rev-parse", "HEAD"], root), *evidence
+    )
+
+
+def publish(plan: ReleasePlan, root: Path, api: ReadAPI = read_api) -> str:
+    """Preserve develop history with a merge and publish main plus tag atomically.
+
+    Args:
+        plan (ReleasePlan): Source and evidence pinned before the successful build.
+        root (Path): Disposable CI checkout containing the chosen release tooling.
+        api (ReadAPI): Reader used to verify existing integration evidence.
+
+    Returns:
+        str: Published main commit SHA, also targeted by the annotated version tag.
+    """
+    ReleasePlan.from_json(plan.to_json())
+    version, main, develop = plan.version, plan.main, plan.develop
+    refs = {"refs/heads/main": main, "refs/heads/develop": develop}
+    evidence = (plan.integration, plan.attempt)
+    if remote_refs(version, root) != refs:
+        raise ValueError(
+            "Release branches or tag changed after selection; start a new run."
+        )
+    if qualification(develop, api) != evidence:
+        raise ValueError(
+            "Integration evidence changed after selection; start a new run."
+        )
     git(["fetch", "--no-tags", "origin", main, develop], root)
     # The module is already loaded from the selected workflow commit. Switching
     # this disposable checkout only prepares the release tree, never branch code.
@@ -205,14 +276,30 @@ def main() -> int:
         int: Zero after main and its version tag have both been published.
     """
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--version", required=True)
+    parser.add_argument("operation", choices=("select", "publish"))
+    parser.add_argument("--version", default="")
+    parser.add_argument("--plan-json", default="")
+    parser.add_argument("--artifacts", type=Path)
     args = parser.parse_args()
-    commit = publish(args.version, ROOT)
+    if args.operation == "select":
+        plan = select(args.version, ROOT)
+        with Path(os.environ["GITHUB_OUTPUT"]).open("a", encoding="utf-8") as stream:
+            stream.write(f"candidate={plan.develop}\nplan={plan.to_json()}\n")
+        return 0
+    from tools.release_artifacts import verify_artifacts
+
+    plan = ReleasePlan.from_json(args.plan_json)
+    if args.artifacts is None:
+        parser.error("Publication requires the completed build artifacts.")
+    verify_artifacts(args.artifacts, plan)
+    commit = publish(plan, ROOT)
+    with Path(os.environ["GITHUB_OUTPUT"]).open("a", encoding="utf-8") as stream:
+        stream.write(f"commit={commit}\n")
     with Path(os.environ["GITHUB_STEP_SUMMARY"]).open("a", encoding="utf-8") as stream:
         stream.write(
-            f"Released `{args.version}` at `{commit}` (merge of tested develop).\n"
+            f"Released `{plan.version}` at `{commit}` (merge of tested develop).\n"
         )
-    print(f"Released {args.version}: {commit}")
+    print(f"Released {plan.version}: {commit}")
     return 0
 
 

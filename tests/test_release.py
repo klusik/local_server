@@ -186,7 +186,8 @@ class ReleaseGitTests(unittest.TestCase):
 
     def test_merge_preserves_history_and_tags_tested_tree(self) -> None:
         """Two develop commits survive beneath a two-parent release merge and annotated tag."""
-        published = release.publish("v_0.1", self.root, evidence_api)
+        plan = release.select("v_0.1", self.root, evidence_api)
+        published = release.publish(plan, self.root, evidence_api)
         refs = release.remote_refs("v_0.1", self.root)
         self.assertEqual(refs["refs/heads/main"], published)
         self.assertEqual(refs["refs/heads/develop"], self.develop)
@@ -199,14 +200,18 @@ class ReleaseGitTests(unittest.TestCase):
             self.git("rev-parse", f"{self.develop}^{{tree}}"),
         )
         with self.assertRaisesRegex(ValueError, "already exists"):
-            release.publish("v_0.1", self.root, evidence_api)
+            release.select("v_0.1", self.root, evidence_api)
 
     def test_untested_main_changes_cannot_enter_release(self) -> None:
         """A clean merge still fails if main contributes content outside tested develop."""
         self.main = self.commit("untested.txt", "main-only content")
         self.git("push", "origin", "main")
         with self.assertRaisesRegex(ValueError, "differs from tested develop"):
-            release.publish("v_0.1", self.root, evidence_api)
+            release.publish(
+                release.select("v_0.1", self.root, evidence_api),
+                self.root,
+                evidence_api,
+            )
         self.assertEqual(
             release.remote_refs("v_0.1", self.root),
             {
@@ -222,12 +227,16 @@ class ReleaseGitTests(unittest.TestCase):
             release, "qualification", side_effect=ValueError("unqualified")
         ):
             with self.assertRaisesRegex(ValueError, "unqualified"):
-                release.publish("v_0.1", self.root, evidence_api)
+                release.select("v_0.1", self.root, evidence_api)
         self.assertEqual(release.remote_refs("v_0.1", self.root), before)
         self.main = self.commit("app.txt", "conflicting main")
         self.git("push", "origin", "main")
         with self.assertRaises(subprocess.CalledProcessError):
-            release.publish("v_0.1", self.root, evidence_api)
+            release.publish(
+                release.select("v_0.1", self.root, evidence_api),
+                self.root,
+                evidence_api,
+            )
         self.assertNotIn("refs/tags/v_0.1", release.remote_refs("v_0.1", self.root))
 
     def test_racing_tag_rejects_main_update_atomically(self) -> None:
@@ -250,10 +259,27 @@ class ReleaseGitTests(unittest.TestCase):
 
         with patch.object(release, "git", side_effect=race):
             with self.assertRaises(subprocess.CalledProcessError):
-                release.publish("v_0.1", self.root, evidence_api)
+                release.publish(
+                    release.select("v_0.1", self.root, evidence_api),
+                    self.root,
+                    evidence_api,
+                )
         refs = release.remote_refs("v_0.1", self.root)
         self.assertEqual(refs["refs/heads/main"], self.main)
         self.assertEqual(refs["refs/tags/v_0.1"], self.base)
+
+    def test_develop_cannot_change_after_build_selection(self) -> None:
+        """A newer qualified head cannot replace the commit whose artifacts were built."""
+        plan = release.select("v_0.1", self.root, evidence_api)
+        self.git("switch", "develop")
+        newer = self.commit("app.txt", "develop advanced during build")
+        self.git("push", "origin", "develop")
+        with self.assertRaisesRegex(ValueError, "changed after selection"):
+            release.publish(plan, self.root, evidence_api)
+        refs = release.remote_refs("v_0.1", self.root)
+        self.assertEqual(refs["refs/heads/main"], self.main)
+        self.assertEqual(refs["refs/heads/develop"], newer)
+        self.assertNotIn("refs/tags/v_0.1", refs)
 
 
 if __name__ == "__main__":

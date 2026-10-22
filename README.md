@@ -52,7 +52,7 @@ See [Architecture](docs/ARCHITECTURE.md), [Development](docs/DEVELOPMENT.md), [S
 ## Portable storage
 
 From sources, the repository folder is the application root, independent of the
-working directory. A future frozen build uses the executable's folder (on macOS,
+working directory. A frozen build uses the executable's folder (on macOS,
 the folder containing the `.app`, not its temporary extraction directory).
 
 ```text
@@ -100,7 +100,14 @@ database data. Local availability does **not** certify a working runtime.
 
 See [reviewed artifacts and hashes](docs/PACKAGE_REVIEW.md),
 [catalog policy](docs/PACKAGE_CATALOG.md) and [compatibility](docs/COMPATIBILITY.md).
-The repository ships metadata, not third-party binaries. Signature verification,
-clean-machine runtime smoke tests, Apache startup and frozen app packaging
-remain future work. Existing per-user state is not silently imported; migration
+The manual Release workflow builds a Windows x64 portable one-file EXE and a
+per-user Inno Setup 7 installer before merging develop into main, then attaches
+both versioned files to a draft GitHub Release. Python and Tk are included;
+server packages remain separate downloads. The installer defaults to
+`%LOCALAPPDATA%\Programs\LocalServer`, requires no admin prompt and preserves
+user data on uninstall. See [release details](docs/DEVELOPMENT.md#manual-release).
+
+The repository ships component metadata, not third-party server binaries.
+Signature verification/code signing, clean-machine runtime smoke tests and Apache
+startup remain future work. Existing per-user state is not silently imported; migration
 is described in [Architecture](docs/ARCHITECTURE.md).

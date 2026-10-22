@@ -1,0 +1,2 @@
+# Verified against Python 3.14; build-only dependencies, never required by users.
+PyInstaller==6.22.3
