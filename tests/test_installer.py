@@ -6,6 +6,7 @@ import json
 import tempfile
 import threading
 import unittest
+import urllib.error
 import zipfile
 from dataclasses import replace
 from pathlib import Path
@@ -14,6 +15,8 @@ from urllib.request import Request
 
 from local_server.components.catalog import PackageSpec
 from local_server.components.installer import (
+    DOWNLOAD_OPEN_ATTEMPTS,
+    DOWNLOAD_TIMEOUT_SECONDS,
     RECEIPT,
     ComponentInstaller,
     DownloadCancelled,
@@ -89,6 +92,82 @@ class InstallerTests(unittest.TestCase):
         ):
             self.installer.install(bad)
         self.assertFalse(self.installer.installed_path(bad).exists())
+
+    def test_header_timeouts_retry_before_any_archive_is_installed(self) -> None:
+        """Direct and urllib-wrapped header timeouts can recover without partial state."""
+        with patch.object(
+            self.installer,
+            "_open",
+            side_effect=[
+                TimeoutError("slow headers"),
+                urllib.error.URLError(TimeoutError("slow TLS")),
+                FakeHttpsResponse(self.archive_content),
+            ],
+        ) as opened:
+            target = self.installer.install(self.package)
+        self.assertEqual(opened.call_count, 3)
+        self.assertTrue((target / RECEIPT).is_file())
+        self.assertTrue(
+            all(
+                call.kwargs["timeout"] == DOWNLOAD_TIMEOUT_SECONDS
+                for call in opened.call_args_list
+            )
+        )
+
+    def test_timeout_retries_are_bounded_and_cancelled_before_another_attempt(
+        self,
+    ) -> None:
+        """Unresponsive servers do not retry forever or ignore cancellation between attempts."""
+        with patch.object(self.installer, "_open", side_effect=TimeoutError) as opened:
+            with self.assertRaises(TimeoutError):
+                self.installer.install(self.package)
+        self.assertEqual(opened.call_count, DOWNLOAD_OPEN_ATTEMPTS)
+        self.assertFalse(self.installer.installed_path(self.package).exists())
+        self.assertEqual(list(self.paths.downloads.iterdir()), [])
+        cancel = threading.Event()
+
+        def timeout(request: Request, *, timeout: float) -> FakeHttpsResponse:
+            """Cancel acquisition while the first response-header wait fails.
+
+            Args:
+                request (Request): Requested reviewed HTTPS resource.
+                timeout (float): Bounded socket timeout supplied by the installer.
+
+            Returns:
+                FakeHttpsResponse: Never returned; the simulated request times out.
+            """
+            cancel.set()
+            raise TimeoutError("cancelled during header wait")
+
+        with patch.object(self.installer, "_open", side_effect=timeout) as opened:
+            with self.assertRaises(DownloadCancelled):
+                self.installer.install(self.package, cancel=cancel)
+        self.assertEqual(opened.call_count, 1)
+
+    def test_http_errors_are_not_retried(self) -> None:
+        """A missing pinned archive fails immediately instead of probing another URL."""
+        error = urllib.error.HTTPError(self.package.url, 404, "Not Found", {}, None)
+        self.addCleanup(error.close)
+        with patch.object(self.installer, "_open", side_effect=error) as opened:
+            with self.assertRaises(urllib.error.HTTPError):
+                self.installer.install(self.package)
+        self.assertEqual(opened.call_count, 1)
+        self.assertEqual(list(self.paths.downloads.iterdir()), [])
+
+    def test_body_timeout_is_not_resumed_or_marked_available(self) -> None:
+        """A partially written archive is discarded instead of retrying a poisoned stream."""
+        response = FakeHttpsResponse(self.archive_content)
+        with (
+            patch.object(
+                response, "read", side_effect=[self.archive_content[:10], TimeoutError]
+            ),
+            patch.object(self.installer, "_open", return_value=response) as opened,
+            self.assertRaises(TimeoutError),
+        ):
+            self.installer.install(self.package)
+        self.assertEqual(opened.call_count, 1)
+        self.assertFalse(self.installer.installed_path(self.package).exists())
+        self.assertEqual(list(self.paths.downloads.iterdir()), [])
 
     def test_https_downgrade_redirect_is_refused(self) -> None:
         """Redirect handlers must block HTTP before sending downgraded requests."""

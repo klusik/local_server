@@ -145,3 +145,31 @@ not need an SDK or manual DLL selection.
 The preceding pending-validation section describes the original acquisition work.
 Subsequent unit and actual Nginx/PHP acquisition/runtime/relocation checks are
 recorded in [RUNTIME.md](RUNTIME.md); they used a pre-existing host VC++ runtime.
+
+## Download location recheck — 2026-10-22
+
+PHP moved the catalog's three versioned NTS x64 ZIPs from `releases/` into its
+[official archive index](https://downloads.php.net/~windows/releases/archives/).
+The exact filenames were found in that index, then each complete archive was
+streamed from its published link and remeasured before changing the catalog URL:
+
+| Version | Bytes | SHA-256 (matches the original catalog pin) |
+| --- | ---: | --- |
+| 8.5.11 | 36048897 | `0ea96e0d2b9b737a6036f05cf4e95c49313faa6d0f27bd97edb2742503f0c043` |
+| 8.4.26 | 35103568 | `da68394f9193b7f6b89d0c76861a4034ae10efee7fd55a7255d8118c2acf70d7` |
+| 8.3.35 | 33873909 | `25a8e2ac9ff30f1d768d1447c09a600617fa6e6082729f6e95f008b59c91fe45` |
+
+No version, content hash, size or extraction layout was changed. This verifies
+availability of the originally reviewed bytes, not security currency of those
+versions. Current `releases.json` describes newer upstream releases and no longer
+serves as live metadata for these archived versions.
+
+The existing MySQL 8.4.13 URL returned HTTPS 206 for a one-byte range request with
+`Content-Range: bytes 0-0/281154912`. That confirms response availability and the
+reported total size at this check, not a new full-archive hash or runtime check.
+Its URL and original integrity pin remain unchanged. Acquisition now allows
+30 seconds per socket operation and at most three attempts to open a response
+when response headers time out. Cancellation is checked before each attempt.
+An HTTP error, certificate failure, mid-body timeout or checksum/size mismatch is
+not retried automatically; incomplete acquisition remains unavailable and is
+cleaned up. A blocking socket wait may delay cancellation by up to that timeout.
