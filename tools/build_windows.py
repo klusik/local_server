@@ -33,7 +33,7 @@ def run(arguments: Sequence[str], cwd: Path, clean_python: bool = False) -> None
                 "LOCAL_SERVER_HOME",
             }:
                 environment.pop(name)
-        environment["PATH"] = str(Path(environment["SystemRoot"]) / "System32")
+        environment["PATH"] = str(Path(environment["SYSTEMROOT"]) / "System32")
     subprocess.run(list(arguments), cwd=cwd, env=environment, check=True, timeout=300)
 
 

@@ -1,6 +1,7 @@
 """Protect build-before-merge ordering, artifact provenance and resumable drafts."""
 
 import json
+import os
 import tempfile
 import unittest
 from copy import deepcopy
@@ -9,7 +10,7 @@ from pathlib import Path
 from typing import Any
 from unittest.mock import patch
 
-from tools import release_draft
+from tools import build_windows, release_draft
 from tools.build_windows import version_resource
 from tools.check_workflows import load_workflows, workflow_policy
 from tools.release import ReleasePlan
@@ -69,6 +70,28 @@ class ReleaseBuildTests(unittest.TestCase):
         self.assertIn("filevers=(0, 2, 1, 0)", version_resource("v_0.2.1"))
         with self.assertRaises(ValueError):
             version_resource("v_65536.2")
+
+    def test_smoke_environment_uses_windows_uppercase_keys(self) -> None:
+        """A copied Windows environment uses uppercase SYSTEMROOT and excludes Python/Tk paths."""
+        with (
+            patch.dict(
+                os.environ,
+                {
+                    "SYSTEMROOT": "C:/Windows",
+                    "PATH": "C:/Python",
+                    "PYTHONPATH": "source",
+                    "TCL_LIBRARY": "developer-tcl",
+                    "LOCAL_SERVER_HOME": "developer-state",
+                },
+                clear=True,
+            ),
+            patch.object(build_windows.subprocess, "run") as process,
+        ):
+            build_windows.run(["fixture.exe"], self.directory, clean_python=True)
+        environment = process.call_args.kwargs["env"]
+        self.assertEqual(environment["PATH"], str(Path("C:/Windows") / "System32"))
+        for name in ("PYTHONPATH", "TCL_LIBRARY", "LOCAL_SERVER_HOME"):
+            self.assertNotIn(name, environment)
 
     def test_main_cannot_publish_before_successful_build(self) -> None:
         """Catch build bypasses, unpinned source and draft creation before the merge."""
