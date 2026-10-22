@@ -1,0 +1,60 @@
+name: Release
+run-name: Release ${{ inputs.version }} from develop (CI from ${{ github.ref_name }})
+
+# Run workflow > Use workflow from chooses this definition, including feature edits.
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version tag: v_X.Y or v_X.Y.Z (for example v_0.1)'
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    name: Merge tested develop into main and tag
+    if: ${{ github.event_name == 'workflow_dispatch' && startsWith(github.ref, 'refs/heads/') }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    permissions:
+      contents: write
+      actions: read
+    steps:
+      - name: Require maintainer selection of branch-owned release CI
+        uses: actions/github-script@v9
+        with:
+          script: |
+            for (const actor of new Set([context.actor, process.env.GITHUB_TRIGGERING_ACTOR])) {
+              const {data} = await github.rest.repos.getCollaboratorPermissionLevel({
+                ...context.repo, username: actor,
+              });
+              if (!['admin', 'maintain'].includes(data.permission)) {
+                throw new Error('Branch-owned release requires an admin or maintainer.');
+              }
+            }
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.14"
+      - name: Merge and atomically publish main plus version tag
+        env:
+          VERSION: ${{ inputs.version }}
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          export GIT_CONFIG_COUNT=1
+          export GIT_CONFIG_KEY_0=http.https://github.com/.extraheader
+          export GIT_CONFIG_VALUE_0="AUTHORIZATION: basic $(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)"
+          python -m tools.release --version "$VERSION"

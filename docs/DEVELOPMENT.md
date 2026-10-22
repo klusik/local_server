@@ -165,6 +165,44 @@ implementation does not disable protection or add bypass tokens. A push using
 depends on its own complete qualification rather than a subsequent push run.
 The feature branch remains available after integration.
 
+### Manual release
+
+Open **Actions → Release → Run workflow**, choose the workflow implementation
+in **Use workflow from** (including a `feature/` branch with CI edits), and enter
+the required **version**, for example `v_0.1` or `v_0.1.0`. Only `v_X.Y` and
+`v_X.Y.Z` are accepted: each component contains one or more ASCII digits.
+No prefixes other than `v_`, suffixes, whitespace or fourth component are accepted.
+The selected branch owns the release implementation; the released source is
+always the current remote `develop`, irrespective of the selected workflow branch.
+
+```console
+gh workflow run release.yml --ref feature/my-ci-change -f version=v_0.1
+```
+
+Release does **not rerun tests**. It reads the successful manual Develop integrate
+run for the exact develop SHA and requires successful BASIC, all three Python 3.14
+platform jobs and publication in that completed attempt. Both the initiating and
+re-running actor must have `maintain` or `admin` permission. Releases are serialized.
+
+The job pins remote main/develop and performs an ordinary **`--no-ff` merge** of
+develop into main. It preserves all develop commits; it never squashes develop.
+The merge tree must equal the already tested develop tree. A conflict or additional
+main-only content must first be resolved and qualified on develop. It creates an
+annotated version tag pointing to the resulting main commit, recording the develop
+SHA and integration run/attempt. Main and the tag are pushed together using
+`git push --atomic`, without force. Existing tags are never overwritten. Changed
+branch heads, missing evidence or rejected updates fail the release; an atomic
+push rejection leaves both release refs unchanged by this run. Normal repository
+protections still apply, without a bypass token. A new run is required after failure.
+
+The tag identifies the release; this workflow does not edit application/package
+version metadata, build installers, create GitHub Release entries or publish docs.
+Those can be added as separately reviewed release stages later. As with integration,
+GitHub needs one initial registration of `release.yml` on the default branch;
+subsequent edits execute directly from the chosen feature branch. The default branch
+must also contain the local reusable workflow definitions referenced by integration
+so the native GitHub button can load the complete workflow graph.
+
 The current tests cover profile validation, atomic persistence, CRUD,
 catalog/platform validation, ZIP and tar.gz safety, verified installer behavior,
 rendered Nginx configs, process ownership and loopback port diagnostics.

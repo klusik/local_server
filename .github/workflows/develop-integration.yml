@@ -1,7 +1,8 @@
 name: Develop integrate
 run-name: Integrate ${{ github.ref_name }} into develop
 
-# Local reusable workflows resolve from this selected workflow commit too.
+# GitHub: Run workflow > Use workflow from > choose the feature branch to integrate.
+# This selects both source code and CI, including local reusable workflows.
 on:
   workflow_dispatch:
 

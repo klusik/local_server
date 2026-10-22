@@ -20,6 +20,40 @@ def workflow_policy(workflows: dict[str, Any]) -> list[str]:
     errors: list[str] = []
     ci = workflows["ci.yml"]
     integrate = workflows["develop-integration.yml"]
+    release = workflows["release.yml"]
+    if set(release["on"]) != {"workflow_dispatch"}:
+        errors.append("Release must only accept explicit manual dispatch.")
+    if release["on"].get("workflow_dispatch", {}).get("inputs") != {
+        "version": {
+            "description": "Version tag: v_X.Y or v_X.Y.Z (for example v_0.1)",
+            "required": True,
+            "type": "string",
+        }
+    }:
+        errors.append("Release must require a literal version input.")
+    if release.get("concurrency") != {"group": "release", "cancel-in-progress": False}:
+        errors.append("Releases must be serialized without cancellation.")
+    if set(release["jobs"]) != {"publish"}:
+        errors.append("Release must publish without running another test matrix.")
+    release_job = release["jobs"]["publish"]
+    if release_job.get("permissions") != {"contents": "write", "actions": "read"}:
+        errors.append(
+            "Release needs publication access and read-only integration evidence."
+        )
+    if release_job.get("if") != (
+        "${{ github.event_name == 'workflow_dispatch' && "
+        "startsWith(github.ref, 'refs/heads/') }}"
+    ):
+        errors.append("Release must execute from a manually selected branch.")
+    release_steps = release_job.get("steps", [])
+    if not any(
+        'python -m tools.release --version "$VERSION"' in step.get("run", "")
+        and step.get("env", {}).get("VERSION") == "${{ inputs.version }}"
+        for step in release_steps
+    ):
+        errors.append(
+            "Release must use the version-validating atomic publication helper."
+        )
     if set(integrate["on"]) != {"workflow_dispatch"}:
         errors.append("Integration must only accept explicit manual dispatch.")
     if ci["jobs"]["full"].get("if") != "${{ github.event_name != 'push' }}":
@@ -81,7 +115,10 @@ def workflow_policy(workflows: dict[str, Any]) -> list[str]:
             errors.append(f"{filename}: default token permissions must be read-only.")
         for name, job in workflow["jobs"].items():
             if job.get("permissions", {}).get("contents") == "write":
-                if filename != "develop-integration.yml" or name != "publish":
+                if (
+                    filename not in {"develop-integration.yml", "release.yml"}
+                    or name != "publish"
+                ):
                     errors.append(
                         "Only the publication job may receive repository write access."
                     )

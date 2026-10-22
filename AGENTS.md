@@ -20,6 +20,10 @@ before altering runtime or installer behavior.
   BASIC and the full matrix pass for the exact source commit; never force the
   integration target. Require exactly one squashed non-merge commit above develop
   before qualifying a develop PR or starting the integration matrix.
+- Release only through the manual Release workflow with a v_X.Y or v_X.Y.Z tag.
+  Preserve develop history with an ordinary merge into main; never squash develop.
+  Reuse exact-SHA integration evidence without rerunning tests. Publish main and
+  its annotated version tag atomically without force or overwriting existing tags.
 - Keep Tkinter concerns inside src/local_server/ui; keep IO/network/process work
   off the Tk event loop once those features are integrated.
 - Do not claim Apache, Nginx, PHP or MySQL starts or installs until verified
